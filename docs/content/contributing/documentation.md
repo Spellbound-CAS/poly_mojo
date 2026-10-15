@@ -4,45 +4,6 @@ Write for someone trying to use or maintain the library. Explain what an
 operation does, show it on a concrete problem, and state the conditions that
 matter to the result. Keep the mathematics precise and the prose direct.
 
-## Voice and structure
-
-Use a concise, conversational, professional voice. Address the reader as
-“you” where it helps, use active verbs, and give each paragraph one job.
-An opening should tell readers what they can do and why the page is useful.
-It should not begin with implementation phases, approval history, or a list
-of files they must read first.
-
-Prefer concrete explanations to promotional adjectives. “Recover a polynomial
-from its values at distinct nodes” tells the reader more than “a powerful,
-flexible interpolation framework.” Explain a restriction where it affects a
-choice: “Use `QQ` when division introduces fractions” is more useful than an
-unexplained trait name.
-
-Keep the detail that supports correct use. Explain ascending coefficients,
-root multiplicity, context selection, and certificate scope explicitly. Avoid
-repeating a restriction on every page when a short link can take the reader
-to its full explanation.
-
-Choose the page structure for its purpose:
-
-- A **tutorial** starts with a small problem, presents a complete program, and
-  explains the result and the next useful variation.
-- A **guide** answers a practical question, including the conditions and
-  failure cases that affect the reader's choice.
-- A **reference** states exact signatures, invariants, return values, errors,
-  and checker claims. Source directives supply declarations and docstrings.
-- An **architecture page** explains the current components, data flow, and
-  engineering tradeoffs.
-
-Use task names in navigation. Contract labels such as P2 belong in
-the contracts, not in the route a new reader needs to learn division.
-Tables are useful for comparing domains or claims; long timing tables do
-not belong in tutorials.
-
-Write tutorials, guides, and the API reference against `poly`. Examples that
-use the core `polynomials` API belong on the Core API pages, which serve
-developers extending the library.
-
 ## Build and review
 
 ```sh
@@ -72,6 +33,10 @@ pixi run --locked docs-test --output .cache/docs-examples-001 --jobs 1
 | `scripts/docs_contract.py` | the audit and directive rendering |
 | `scripts/mojo_api.py` | the reader of Mojo declarations and docstrings that the `api` directive renders |
 | `docs/content/reference/` | topic-based reference pages for the public API |
+
+Write tutorials, guides, and the API reference against `poly`. Examples that
+use the core `polynomials` API belong on the Core API pages, which serve
+developers extending the library.
 
 ## Mathematics
 

@@ -121,12 +121,5 @@ nav:
   - Maintaining:
       - Maintainer guide: contributing/handoff.md
       - Writing documentation: contributing/documentation.md
-      - Ground rules: spec/ground-rules.md
-      - Implementation contracts: spec/index.md
-      - Representation contracts: spec/p1-arithmetic.md
-      - Division and elimination contracts: spec/p2-gcd.md
-      - Factorization contracts: spec/p3-factorization.md
-      - Gröbner contracts: spec/p4-groebner.md
-      - Real-root contracts: spec/p5-roots.md
-      - Validation and compatibility: spec/acceptance.md
+      - Contracts and rules: spec/index.md
       - Source provenance and fixtures: contributing/reference.md

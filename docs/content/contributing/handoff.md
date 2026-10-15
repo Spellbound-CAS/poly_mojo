@@ -151,8 +151,7 @@ Keep the following properties visible during review:
 - Deterministic prime sequences, seeds, sorting, and certificate traversal.
 - Runtime imports limited to `std` and apn_mojo, without foreign algebra calls.
 
-The [ground rules](../spec/ground-rules.md) and [implementation contracts](../spec/index.md)
-provide the detailed requirements. When changing an internal algorithm, preserve
+[Contracts and rules](../spec/index.md) provides the detailed requirements. When changing an internal algorithm, preserve
 its external mathematical meaning even if work charges or performance change.
 
 ## Write tests with independent expectations

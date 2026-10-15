@@ -79,5 +79,5 @@ therefore part of the internal design even when they are not public API.
 
 Public fields make inspection and certificate transport possible, but do not
 remove the invariants. Prefer validated factories to direct field mutation.
-For the formal requirements, see [representation contracts](../spec/p1-arithmetic.md)
-and [ground rules](../spec/ground-rules.md).
+For the formal requirements, see the [representation contracts](../spec/index.md#p1-representations-and-arithmetic)
+and [ground rules](../spec/index.md#ground-rules).
