@@ -76,7 +76,7 @@ def main():
     scope.add_argument('--library-only', action='store_true', help='Exclude the optional kernel suite in tests/kernel/')
     scope.add_argument('--kernel-only', action='store_true', help='Compile only the optional kernel suite')
     parser.add_argument('--jobs', type=int, default=min(4, os.cpu_count() or 1), help='Test processes run at once; compilation is shared')
-    parser.add_argument('--timeout', type=float, default=300, help='Runtime timeout per test, in seconds')
+    parser.add_argument('--timeout', type=float, default=1800, help='Runtime timeout per test, in seconds (the Gröbner corpus takes about 10 minutes at O0)')
     parser.add_argument('--optimization', type=int, choices=(0, 1, 2, 3), default=0, help='Runtime suite optimization level (default: 0)')
     parser.add_argument('--compiler-threads', type=int, default=2, help='Threads in the single compiler process (default: 2)')
     parser.add_argument('--compile-timeout', type=float, help='Optional timeout for the single suite compilation')
