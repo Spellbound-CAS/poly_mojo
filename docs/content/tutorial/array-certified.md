@@ -89,9 +89,7 @@ For algebraic inputs, `next` returns an `evaluation.EnclosureStep`. The stream
 sends coefficient refinements in canonical coefficient order, algebraic point
 refinements in axis order, then arithmetic bounds. Your forwarding loop stays
 the same. `step_count()` and the receipt's `steps` include all these events.
-Streams without algebraic inputs continue to emit the core `NumericBox` type.
-Code that explicitly annotated an algebraic stream as a core `EnclosureStream`
-should let Mojo infer the facade stream type instead.
+Streams without algebraic inputs emit `NumericBox` steps.
 
 Higher precision narrows the algebraic input intervals and reduces arithmetic
 rounding. It does not promise a particular final width: cancellation, repeated

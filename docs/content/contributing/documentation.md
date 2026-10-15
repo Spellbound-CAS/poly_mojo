@@ -39,6 +39,10 @@ the contracts, not in the route a new reader needs to learn division.
 Tables are useful for comparing domains or claims; long timing tables do
 not belong in tutorials.
 
+Write tutorials, guides, and the API reference against `poly`. Examples that
+use the core `polynomials` API belong on the Core API pages, which serve
+developers extending the library.
+
 ## Build and review
 
 ```sh

@@ -1,6 +1,6 @@
 # Multivariate factorization and sparse gcd
 
-For a worked introduction, see the [tutorial](../tutorial/factorization.md).
+For the array workflow, see [exact algebra](../tutorial/array-exact.md#factor-or-group-repeated-roots).
 Coefficient-array users can select this sparse GCD algorithm with
 `sparse.gcd(a, b, method="modular")`, or retain its evidence through
 `sparse.gcd_checked`. See [exact array choices](../tutorial/array-checked.md#exact-queries-and-algorithm-choices).

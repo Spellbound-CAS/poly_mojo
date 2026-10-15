@@ -1,8 +1,8 @@
 # Arbitrary-precision numerical polynomials
 
 These APIs provide rounded arithmetic, rigorous evaluation, and validated
-real and complex root covers. Start with [numerical evaluation](../tutorial/numerical.md)
-or [root refinement](../tutorial/numerical-roots.md) for a worked example.
+real and complex root covers. The [examples](#example) show evaluation, enclosures,
+and root refinement; array users start with [numerical coefficients](../tutorial/array-numeric.md).
 Numerical declarations have a separate compatibility snapshot and do not
 extend the exact kernel codec.
 
@@ -114,7 +114,7 @@ permits counted clusters. Otherwise an inseparable repeated complex root returns
 an inconclusive result, retaining its checked cluster cover when available.
 The `refine_real_roots_*` and `refine_complex_roots_*` entry points check a
 previous cover against its original options, retain satisfactory regions, and
-continue with the new options. The [refinement tutorial](../tutorial/numerical-roots.md)
+continue with the new options. The [refinement example](#example)
 shows how to keep the result and options together.
 
 A nonzero constant has a successful empty root set. The zero polynomial raises
@@ -137,6 +137,17 @@ The [theory page](../theory/numerical.md) states the proof obligations.
 ## Example
 
 <!-- example: docs/examples/numerical.mojo -->
+
+The next program evaluates $x^2-2$ at $x=1.5$ with 128-bit point arithmetic,
+then checks an enclosure of the exact polynomial over a small interval around
+1.5:
+
+<!-- example: docs/examples/tutorial_numerical.mojo -->
+
+`refine_real_roots_exact` takes the original polynomial, the previous result,
+and both sets of options. It checks and reuses the earlier evidence:
+
+<!-- example: docs/examples/tutorial_refinement.mojo -->
 
 ## API
 

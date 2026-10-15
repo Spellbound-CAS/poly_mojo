@@ -30,16 +30,29 @@ promotion, sparse terms, modular coefficients, and evaluation at many points.
 
 ## Bound a calculation
 
-Each function accepts an optional `max_steps` allowance. For example,
-`poly.dense.power([1, 1], 100, max_steps=10000)` raises `PolyError` with kind
-`LIMIT` if it cannot finish within that allowance. A default call uses
-`UInt64.MAX`. The allowance measures work, not elapsed time or a hard RAM limit.
+Each function accepts an optional `max_steps` limit. As a call computes, the
+library counts steps: one for each term or coefficient it processes and for
+each element it allocates, and more for arithmetic on large numbers, growing
+with their size in bytes. If a call would exceed its limit, it stops and
+raises `PolyError` with kind `LIMIT`. The default, `UInt64.MAX`, means no
+limit.
 
-For a sequence of calculations, import `Budget` from `polynomials` and pass
-the same mutable budget as the last positional argument to each call. See
-[budgets and errors](../guides/errors.md) for accounting and failure
-behavior.
+The count is exact and repeatable: the same call on the same input takes the
+same number of steps on any machine. To see how many steps a call takes, pass
+it a `Budget` from `polynomials` as the last argument, and read how much of
+the budget it used:
 
-Continue with [dense and sparse arrays](arrays.md). The
-[named-polynomial interface](named-polynomials.md) is available when your input
-already contains variable names or mathematical expressions.
+<!-- example: docs/examples/tutorial_steps.mojo -->
+
+Computing $(1+x)^{100}$ takes 329,732 steps, so a limit of 10,000 stops it and
+a limit of 1,000,000 lets it finish.
+
+Steps do not convert to time. On one laptop core, different operations ran at
+anywhere from about 100 million to over 10 billion steps per second, because
+the count charges arithmetic on large numbers more than it costs to run.
+Measure the steps your own inputs take, and set the limit with room to spare.
+To bound a sequence of calculations together, pass the same `Budget` to each
+call. [Budgets and errors](../guides/errors.md#what-a-step-costs) lists what
+each kind of work costs.
+
+Continue with [dense and sparse arrays](arrays.md).

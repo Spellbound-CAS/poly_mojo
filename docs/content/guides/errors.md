@@ -7,9 +7,9 @@ these cases separate from mathematical results.
 
 <!-- example: docs/examples/tutorial_errors.mojo -->
 
-The first error is deliberate work exhaustion. The second is a name that does
-not belong to the ring. Neither produces a polynomial that could be mistaken
-for a successful result.
+The first error is deliberate work exhaustion. The second is division by the
+zero polynomial. Neither produces a polynomial that could be mistaken for a
+successful result.
 
 ## Set a budget for a workflow
 
@@ -19,16 +19,46 @@ your application needs one. A rejected charge leaves the remaining allowance
 unchanged. Algorithms charge before the corresponding work and preserve
 borrowed inputs on failure.
 
-Budget units are implementation work estimates, not milliseconds, bytes, or a
-stable operation count across versions. They do not provide a hard memory
-limit. Cache state can affect charges without changing the mathematical result.
-Measure representative inputs when choosing an application limit.
+### What a step costs
+
+A budget unit is one step of the library's work model. Each call charges its
+steps before doing the corresponding work:
+
+| Work | Steps charged |
+|---|---|
+| Visiting a term, coefficient, or pending subproblem | 1 |
+| Allocating storage | 1 per element |
+| Adding or subtracting two integers | the sum of their sizes |
+| Multiplying two integers; adding, subtracting, or multiplying two rationals | the square of the sum of their sizes |
+| An operation on prime-field residues | 1 |
+
+An integer's size is its magnitude in bytes, plus one; a rational's size is
+the sum of its numerator's and denominator's sizes. Numerical coefficients are
+charged the same way, by the storage their precision needs. Computing
+$(1+x)^{100}$ with `poly.dense.power`, for example, takes about 330,000 steps;
+its coefficients have up to 30 digits.
+
+The same call on the same input charges the same steps on every machine,
+whatever its load or speed. Reusing prepared state from an earlier call can
+lower the charge without changing the result. To measure a call, pass it a
+fresh `Budget()` and subtract its `remaining()` from `UInt64.MAX` afterwards,
+as [the first tutorial](../tutorial/first-polynomial.md#bound-a-calculation)
+shows.
+
+Steps do not convert to time or memory. On one laptop core, different
+operations ran at anywhere from about 100 million to over 10 billion steps
+per second: the table charges a multiplication of large numbers by the square
+of their sizes, while the processor multiplies eight bytes at a time. An
+allocation is charged per element, not per byte, so steps are not a hard
+memory limit either. Step counts can change between releases, so measure
+representative inputs when choosing an application limit, and check it again
+after upgrading.
 
 ## Respond to the error kind
 
 | Kind | Typical cause | Useful response |
 |---|---|---|
-| `DOMAIN` | Zero divisor, incompatible rings, invalid nodes, or unknown variable | Correct the input or choose an appropriate domain |
+| `DOMAIN` | Zero divisor, incompatible domains or moduli, invalid nodes, or an invalid axis | Correct the input or choose an appropriate domain |
 | `LIMIT` | Exhausted work allowance or an unmet strict search limit | Increase the relevant limit if more work is acceptable |
 | `CAPACITY` | A size, exponent, or encoding exceeds its representable bound | Reduce or restructure the problem |
 | `UNSUPPORTED` | The requested operation cannot handle this case | Choose a supported formulation or algorithm |
@@ -59,6 +89,7 @@ establish a global root count. `complete_only=True` turns failure to meet the
 requested root properties into an exception. Budget exhaustion always raises,
 including in modes that otherwise return inconclusive numerical results.
 
-The [numerical root tutorial](../tutorial/numerical-roots.md) shows how to
-refine checked evidence. The [API reference](../reference/p1.md) defines
-`Budget`, `PolyError`, and `PolyErrorKind`.
+The [root tutorial](../tutorial/array-roots.md#choose-the-numerical-claim-you-need)
+shows how to read and refine checked evidence. The
+[API reference](../reference/array-api.md#shared-types) defines `Budget`,
+`PolyError`, and `PolyErrorKind`.

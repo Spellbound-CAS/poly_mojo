@@ -143,15 +143,6 @@ operation-specific evidence.
 [CAD workflows](array-cad-workflows.md) accept AA coefficients directly and keep
 user coordinates and signs in their original order. To save exact algebraic
 arrays and their witnesses, see [serialization](array-serialization.md).
-
-`algebraic.asreal(core_witness)` validates and copies a mutable `RealAlgebraic`
-witness. It accepts valid nonminimal defining polynomials and normalizes the
-value for equality; later edits to the input witness cannot change the scalar.
-
-For core interoperability, `algebraic.Real` and `algebraic.Complex` implement
-`CoefficientField`. `dense.to_core` therefore returns a `DensePoly` parameterized
-by the corresponding type, and sparse conversion works the same way. The mutable
-polynomial buffer is independent; coefficient copies share immutable witnesses.
 See the [algebraic reference](../reference/array-algebraic.md) for scalar helpers.
 
 

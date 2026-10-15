@@ -35,8 +35,7 @@ claim so you can decide whether it meets your application's needs.
 
 Share one `Budget` across preparation, production, output extraction, and
 checking when the entire workflow needs a work limit. Result copies share
-storage, while extracted polynomial arrays and `to_core` results own independent
-mutable data.
+storage, while extracted polynomial arrays own independent data.
 
 ## Exact queries and algorithm choices
 

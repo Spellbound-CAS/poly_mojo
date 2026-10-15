@@ -46,7 +46,8 @@ Choose division according to the result you need:
 
 For example, `divide_exact([1, 1], [2])` returns `None`: $(1+x)/2$ has no
 integer coefficient representation. Use a rational coefficient when you want
-the quotient over `QQ`. Pseudo-division instead multiplies the dividend by
+the quotient over `QQ`. Invalid inputs and work exhaustion still raise errors;
+they are not negative divisibility answers. Pseudo-division instead multiplies the dividend by
 $\operatorname{lc}(q)^{\max(\deg p-\deg q+1,0)}$. The example gives
 $4(x^2+1)=(2x-1)(2x+1)+5$.
 
@@ -156,31 +157,13 @@ convention. Two nonzero constants in the selected variable raise `DOMAIN`.
 `subresultants` returns the indexed family $S_0,\ldots,S_{m-1}$, where $m$ is
 the smaller input degree in that variable; zero entries retain their indices.
 
-## Continue with core algorithms and certificates
+## Continue with checked results
 
-<!-- example: docs/examples/array_exact_core.mojo -->
-
-`to_core` gives you independent mutable `DensePoly` or `SparsePoly` storage.
-`from_core` validates and copies it back into an immutable array. Changing
-either side afterwards cannot change the other. Dense import normalizes its
-single variable ID to zero. Sparse import accepts any valid core term order
-and returns the array convention of increasing lexicographic order.
-
-Sparse axes and core variable IDs need not coincide. Supply the same
-`variables=` map in each direction, and set `from_core[ndim=2]` for two axes,
-including axes unused by the polynomial. The map is in array-axis order;
-unknown used IDs and duplicate map entries raise `DOMAIN`.
-
-The example uses the core factorization result with its independent checker.
-That checker establishes the factor product, not irreducibility. You can retain
-and check exact algebra evidence directly through the
+You can retain and check exact algebra evidence directly through the
 [checked array operations](array-checked.md), including `factor_checked`.
 Roots, Gröbner bases, and CAD also have direct [array workflows](array-systems.md).
-Use the core bridge when you need mutable core values or an existing core
-algorithm interface.
 
 Every operation above accepts `max_steps=` or an explicit shared `Budget`.
-The example shares one allowance across construction, conversion, computation,
-and checking. See the [dense](../reference/array-dense.md) and
+See the [dense](../reference/array-dense.md) and
 [sparse](../reference/array-sparse.md) references for signatures and domain
 requirements.

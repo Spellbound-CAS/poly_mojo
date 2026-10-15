@@ -1,12 +1,16 @@
 """Use APN's array layout operations around a polynomial batch reduction."""
 from apn_mojo import Batch, Integer
 from poly import batch
-from polynomials import Budget, PolyError, ZZ
+from polynomials import Budget, PolyError, PolyErrorKind
 from std.testing import assert_equal
 
 
 def add_integers(a: Integer, b: Integer, mut budget: Budget) raises PolyError -> Integer:
-    return ZZ(a).add(ZZ(b), budget).value
+    budget.charge(1)
+    try:
+        return a + b
+    except error:
+        raise PolyError(PolyErrorKind.CAPACITY, String(error))
 
 
 def main() raises:

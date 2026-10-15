@@ -30,7 +30,7 @@ property suggested by the producer's name.
 For example, a gcd producer supplies a candidate $g$ and cofactors with
 $a=ga'$ and $b=gb'$. These two products establish divisibility. To conclude
 maximality, also use the applicable Bézout or coprimality evidence. The
-[division and gcd tutorial](../tutorial/division.md) follows this distinction.
+[checked exact results](../tutorial/array-checked.md) follow this distinction.
 
 ## Keep the inputs with the evidence
 

@@ -48,7 +48,7 @@ limits bound calculations.
 - **Reduce polynomial systems with Gröbner bases.** Compute reduced bases over
   rationals, finite fields, or exact Gaussian rationals. Ideal membership
   returns an identity you can check independently of the basis computation.
-  See [Gröbner bases](docs/content/tutorial/groebner.md).
+  See [equations and inequalities](docs/content/tutorial/array-systems.md).
 - **Calculate with exact algebraic coefficients.** Use selected roots directly
   in dense or sparse polynomials, or combine real and imaginary algebraic parts
   for exact complex arithmetic. Domains and mixed-type promotion are inferred;
@@ -61,7 +61,7 @@ limits bound calculations.
 - **Find and refine validated numerical roots.** Compute real intervals or
   complex rectangles with certified root counts, then refine checked results
   to a tighter width. Explicit completeness, accuracy, and isolation flags
-  tell you what the result establishes. See [numerical roots](docs/content/tutorial/numerical-roots.md).
+  tell you what the result establishes. See [numerical root covers](docs/content/tutorial/array-roots.md#choose-the-numerical-claim-you-need).
 
 Independent checkers verify factor products, membership identities, enclosure
 bounds, and root or CAD evidence against the original inputs. The
@@ -187,12 +187,12 @@ quotient enclosures when you need guaranteed bounds.
 
 | Task | Start with |
 |---|---|
-| Choose coefficients and a representation | [Domains](docs/content/guides/domains.md), [dense and sparse polynomials](docs/content/tutorial/representations.md) |
-| Divide, simplify, and factor | [Division and gcds](docs/content/tutorial/division.md), [rational functions](docs/content/tutorial/array-rational.md), [factorization](docs/content/tutorial/factorization.md) |
-| Differentiate, integrate, or reconstruct a polynomial | [Calculus](docs/content/tutorial/calculus.md), [interpolation](docs/content/tutorial/interpolation.md) |
+| Choose coefficients and a representation | [Domains](docs/content/guides/domains.md), [polynomial arrays](docs/content/tutorial/arrays.md) |
+| Divide, simplify, and factor | [Exact algebra](docs/content/tutorial/array-exact.md), [rational functions](docs/content/tutorial/array-rational.md) |
+| Differentiate, integrate, or reconstruct a polynomial | [Calculus](docs/content/tutorial/arrays.md#divide-integrate-and-evaluate-at-many-points), [interpolation](docs/content/tutorial/array-exact.md#recover-coefficients-from-exact-samples) |
 | Change basis or compute a local expansion | [Polynomial bases](docs/content/tutorial/array-bases.md), [formal series](docs/content/tutorial/array-series.md) |
-| Isolate rational-polynomial roots exactly | [Exact real roots](docs/content/tutorial/real-roots.md) |
-| Evaluate with arbitrary precision or interval bounds | [Numerical calculations](docs/content/tutorial/numerical.md) |
+| Find exact real and complex roots | [Roots](docs/content/tutorial/array-roots.md) |
+| Evaluate with arbitrary precision or interval bounds | [Numerical coefficients](docs/content/tutorial/array-numeric.md), [certified evaluation](docs/content/tutorial/array-certified.md) |
 | Handle work limits and inconclusive results | [Budgets and errors](docs/content/guides/errors.md) |
 
 The [API reference](docs/content/reference/index.md) lists operations by topic.

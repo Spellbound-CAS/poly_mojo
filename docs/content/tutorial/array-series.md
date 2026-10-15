@@ -58,21 +58,10 @@ that every operation exists at the requested order.
 
 Every calculation accepts `max_steps=` or a shared `Budget`. Input collection,
 promotion, the core algorithm, and result storage consume the same allowance.
-A failure leaves prepared inputs usable. `to_core` and `from_core` copy storage
-for interoperability with the mutable core API.
+A failure leaves prepared inputs usable.
 
-See the [series API reference](../reference/array-series.md) for signatures and
-[numerical series](series.md#use-numerical-series-deliberately) for context-based
-floating-point and ball operations.
+See the [series API reference](../reference/array-series.md) for signatures.
 
 For floating-point or ball coefficients, pass `context=` when constructing the
 representation and when computing with it. The [numerical series and basis
 example](array-numeric.md#numerical-series-and-alternative-bases) covers both workflows.
-
-## Map a core variable
-
-`to_core(p, variable=42)` exports an independent core value with variable ID
-42. `from_core` accepts any core variable ID and normalizes it to array axis
-zero. Both exact and numerical values support this boundary. Numerical
-imports take `context=` and preserve the stored coefficients' formats and
-bounds. See the [representation example](array-numeric.md#exchange-representation-metadata).

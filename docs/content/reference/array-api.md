@@ -22,11 +22,8 @@ zero divisors raise `PolyError` with kind `DOMAIN`; budget exhaustion raises
 without support for an inferred domain raise `UNSUPPORTED`; the operation
 references list those boundaries.
 
-`dense.to_core` and `sparse.to_core` return independent mutable core storage.
-Their `from_core` counterparts validate and copy it back. Use
-`sparse.from_core[ndim=2](p, variables=[7, 2])` to map core IDs 7 and 2 onto
-array axes zero and one. This explicit dimension is needed even for zero or
-constant input; coefficient domains are still inferred.
+Developers who need mutable core storage can use `to_core` and `from_core`;
+the [core API](core-api.md) describes both.
 
 <!-- api: src/poly/_common.mojo Values -->
 
@@ -37,6 +34,25 @@ constant input; coefficient domains are still inferred.
 <!-- api: src/poly/_conversion.mojo to_dense -->
 
 <!-- api: src/poly/_conversion.mojo to_sparse -->
+
+## Shared types
+
+Import these from `polynomials`. A `Budget` bounds the work of one call or of a
+sequence of calls; see [errors and work limits](../guides/errors.md). Failures
+raise `PolyError`, whose `PolyErrorKind` separates invalid input from
+exhausted work and unrepresentable sizes. `NumericOptions` sets accuracy
+targets and search limits for root covers and adaptive evaluation;
+`NumericOutcome` reports why a requested property remains unresolved.
+
+<!-- api: src/polynomials/errors.mojo Budget -->
+
+<!-- api: src/polynomials/errors.mojo PolyError -->
+
+<!-- api: src/polynomials/errors.mojo PolyErrorKind -->
+
+<!-- api: src/polynomials/numeric_options.mojo NumericOptions -->
+
+<!-- api: src/polynomials/numeric_options.mojo NumericOutcome -->
 
 ## Root and system workflows
 

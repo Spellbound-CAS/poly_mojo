@@ -64,16 +64,7 @@ invertible. Use an explicit `max_steps=` or a shared `Budget` to bound work,
 including conversion and output allocation.
 
 The [basis API reference](../reference/array-basis.md) lists every operation.
-The [core basis tutorial](bases.md) also covers the numerical variants.
 
 For floating-point or ball coefficients, pass `context=` when constructing the
 representation and when computing with it. The [numerical series and basis
 example](array-numeric.md#numerical-series-and-alternative-bases) covers both workflows.
-
-## Map a core variable
-
-`to_core(p, variable=42)` exports an independent core value with variable ID
-42. `from_core` accepts any core variable ID and normalizes it to array axis
-zero. Both exact and numerical values support this boundary. Numerical
-imports take `context=` and preserve the stored coefficients' formats and
-bounds. See the [representation example](array-numeric.md#exchange-representation-metadata).

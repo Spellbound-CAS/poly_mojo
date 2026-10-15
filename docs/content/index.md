@@ -30,21 +30,21 @@ and optional work limits through a complete, checked program.
 | What you want to do | Where to go |
 |---|---|
 | Choose exact, rounded, or interval coefficients | [Coefficient domains](guides/domains.md) |
-| Choose storage and understand coefficient order | [Dense and sparse polynomials](tutorial/representations.md) |
-| Divide and find common factors | [Division and gcds](tutorial/division.md) |
+| Choose storage and understand coefficient order | [Polynomial arrays](tutorial/arrays.md) |
+| Divide and find common factors | [Exact algebra](tutorial/array-exact.md#find-and-remove-common-factors) |
 | Simplify fractions or find residues | [Rational functions](tutorial/array-rational.md) |
-| Factor a polynomial | [Factorization](tutorial/factorization.md) |
-| Differentiate, integrate, and substitute | [Calculus and transformations](tutorial/calculus.md) |
-| Reconstruct a polynomial from samples | [Interpolation](tutorial/interpolation.md) |
+| Factor a polynomial | [Factorization](tutorial/array-exact.md#factor-or-group-repeated-roots) |
+| Differentiate, integrate, and substitute | [Calculus](tutorial/arrays.md#divide-integrate-and-evaluate-at-many-points), [substitution](tutorial/array-exact.md#change-variables-and-eliminate-an-axis) |
+| Reconstruct a polynomial from samples | [Interpolation](tutorial/array-exact.md#recover-coefficients-from-exact-samples) |
 | Use Newton, Chebyshev, or Bernstein coefficients | [Alternative bases](tutorial/array-bases.md) |
 | Compute a truncated expansion | [Formal power series](tutorial/array-series.md) |
-| Isolate real roots exactly | [Real roots](tutorial/real-roots.md) |
-| Evaluate with arbitrary precision and interval bounds | [Numerical coefficient arrays](tutorial/array-numeric.md) |
+| Find exact real and complex roots | [Roots](tutorial/array-roots.md) |
+| Evaluate with arbitrary precision and interval bounds | [Numerical coefficients](tutorial/array-numeric.md) |
 | Apply a function across polynomial batches | [Maps and broadcasting](tutorial/array-batching.md) |
 | Save and restore coefficients | [Canonical serialization](tutorial/array-serialization.md) |
-| Find and refine validated real or complex roots | [Numerical roots](tutorial/numerical-roots.md) |
-| Reduce polynomial systems | [Gröbner bases and membership](tutorial/groebner.md) |
-| Compute with algebraic values or decompose real space | [Algebraic numbers](tutorial/algebraic-numbers.md), [CAD](tutorial/cad.md) |
+| Find and refine validated real or complex roots | [Numerical root covers](tutorial/array-roots.md#choose-the-numerical-claim-you-need) |
+| Reduce polynomial systems | [Gröbner bases and membership](tutorial/array-systems.md) |
+| Compute with algebraic values or decompose real space | [Algebraic coefficients](tutorial/algebraic-coefficients.md), [CAD](tutorial/array-systems.md#state-real-sign-constraints-directly) |
 
 ## Understand the result
 
@@ -67,9 +67,10 @@ for handling work exhaustion and inconclusive numerical outcomes.
 
 The [architecture overview](architecture/overview.md) explains the package's
 layers and data flow. The [mathematical chapters](theory/index.md) give
-algorithms, proofs, and certificate relations. Maintainers can start with the
-[maintenance guide](contributing/handoff.md), then consult the contracts and
-recorded measurements for the component they are changing.
+algorithms, proofs, and certificate relations. Developers extending the
+library can start with the [core API](reference/core-api.md) and the
+[maintenance guide](contributing/handoff.md), then consult the contracts for
+the component they are changing.
 
 See the [example gallery](examples/index.md) for complete programs and
 [support and limitations](guides/status.md) for the current scope.

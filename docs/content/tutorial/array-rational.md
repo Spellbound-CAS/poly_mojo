@@ -101,20 +101,10 @@ discriminant, and QQbar uses linear factors. All verification work shares your
 budget. `LIMIT` means checking did not finish, never that a factor is irreducible.
 
 All computational calls accept `max_steps=` or a shared `Budget`. The first
-factorization may also populate the core prime cache; later calls reuse it
-and can consume less work. Results share
-owned storage, and core conversion copies it so later core mutation cannot
-change the prepared function. See the [rational API reference](../reference/array-rational.md)
+factorization may also populate a shared prime cache; later calls reuse it
+and can consume less work. Results share owned storage. See the [rational API reference](../reference/array-rational.md)
 for signatures and [normalization theory](../theory/rational-functions.md) for
 the normalization guarantee.
-
-## Exchange values with the core
-
-`to_core(f)` returns a core `RationalFunction` for QQ. For QQi, GF(p), AA, and QQbar,
-it returns `(numerator, denominator)` as public `SparsePoly` values, since the
-core rational-function container is QQ-specific. Both forms own independent
-storage. Import either form with `from_core[ndim=n](value)`; `variables=` maps
-core variable IDs into array-axis order. Zero-axis constants are supported.
 
 ## Work over a finite field
 
@@ -135,8 +125,7 @@ those factors describe roots in an algebraic extension, not complex numbers.
 Pass `context=` when building a numerical fraction, either from coefficients
 or by converting an exact fraction. Arithmetic, derivatives, integer powers,
 composition, and substitution return new values under the context you supply.
-No approximate GCD is used to cancel factors. `to_core` and `from_core` copy
-numerator and denominator as a pair of numerical sparse polynomials.
+No approximate GCD is used to cancel factors.
 
 For a certified value, call `rational.enclose(f, point, context=...)` and
 `rational.check(result)`. The checker verifies both polynomial evaluations at
@@ -175,16 +164,3 @@ result can pass that check; it is not a successful accuracy claim. `poly.io`
 preserves this evidence, including outcomes without a finite quotient. All
 attempts share the caller's work budget. Scalar points and coordinate tuples
 work for both exact and numerical fractions.
-
-## Map variables at the core boundary
-
-`rational.to_core(f, variables=ids)` assigns one core variable ID to each
-array axis, including unused axes. Restore with
-`rational.from_core[ndim](core, variables=ids)`. IDs may be signed and need
-not increase; their positions define array-axis order. Duplicate IDs or
-unmapped variables raise `DOMAIN`.
-
-The same mapping works for exact and numerical fractions. Numerical copies
-preserve stored formats and coefficient bounds without a new context. Imports
-still validate both polynomials and require a denominator family that excludes
-the identically zero polynomial. Exported storage is independent of `f`.

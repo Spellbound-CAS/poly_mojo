@@ -182,8 +182,8 @@ and parsing work uses the same budget. A sink can receive a partial record
 before a failure, so applications that need atomic replacement should write
 to temporary storage and publish it only after `dump` succeeds.
 
-The [interchange reference](../reference/toolkit.md) describes the format
-and the core streaming interfaces. The [array API reference](../reference/array-api.md)
+The [value serialization reference](../reference/array-io.md#polynomialtextsink)
+describes the sink and source protocols. The [array API reference](../reference/array-api.md)
 links the dense and sparse helper signatures.
 
 Algebraic root covers retain their coefficient-conversion witnesses. `AA`

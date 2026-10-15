@@ -101,20 +101,10 @@ Arrays support indexing, iteration, and `to_list()`. `poly.to_dense` and
 conversion allocates gap zeros, so use a work limit when sparse exponents can
 be large.
 
-## Exchange numerical polynomials with the core
-
-`to_core` and `from_core` make independent copies while preserving every stored
-numerical format and ball bound. They need no arithmetic context. Dense export
-accepts `variable=`; import normalizes that ID to the array's axis zero.
-
-<!-- example: docs/examples/array_access_interop.mojo -->
-
-For sparse polynomials, `variables=` maps array axes to core variable IDs in
-both directions. Use `from_core[ndim=N]` to preserve the full power shape,
-including unused axes. Import accepts any valid core monomial order and returns
-increasing lexicographic array storage. Signed IDs and a different axis mapping
-are allowed; duplicate map entries or an unmapped used variable raise `DOMAIN`.
-Changing the exported core polynomial leaves the original array unchanged.
+Use `add(p, scalar, context=...)`, `subtract`, `multiply`, or `divide` for
+[scalar arithmetic](arrays.md#work-with-scalar-constants). Sparse scalar division
+keeps sparse storage, even for very large powers; division by a polynomial
+continues to use the quotient/remainder operations described below.
 
 ## Distinguish a degree bound from a known degree
 
@@ -186,24 +176,3 @@ cannot represent the resulting degree.
 
 See [formal series](array-series.md), [alternative bases](array-bases.md), and
 [certified evaluation](array-certified.md) for the mathematical contracts.
-
-## Exchange representation metadata
-
-Series and basis arrays can exchange core values with arbitrary variable IDs.
-Use `to_core(..., variable=...)` to choose an ID; `from_core` normalizes it to
-array axis zero. Fraction conversions take `variables=`, one core ID per array
-axis, for both numerator and denominator.
-
-<!-- example: docs/examples/array_surface_interop.mojo -->
-
-These conversions copy stored coefficients and Newton nodes without rounding
-them. Numerical series and basis imports still take `context=`: for a series,
-it supplies the format of implicit zero coefficients. It does not change
-stored nonzero coefficients. Formal order, basis kind, coefficient extent,
-and unused fraction axes survive the conversion. Mutating an exported core
-value cannot change the prepared input.
-
-Use `add(p, scalar, context=...)`, `subtract`, `multiply`, or `divide` for
-[scalar arithmetic](arrays.md#work-with-scalar-constants). Sparse scalar division
-keeps sparse storage, even for very large powers; division by a polynomial
-continues to use the quotient/remainder operations described above.

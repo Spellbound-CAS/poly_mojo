@@ -24,6 +24,15 @@ and the existing coefficient-array records.
 
 <!-- api: src/poly/io.mojo load -->
 
+`dump` and `load` and the coefficient-record `dump` and `load` functions in
+`poly.dense` and `poly.sparse` exchange text through these two protocols. Import
+them from `polynomials` and implement them over your file, network, or other
+storage.
+
+<!-- api: src/polynomials/text_stream.mojo PolynomialTextSink -->
+
+<!-- api: src/polynomials/text_stream.mojo PolynomialTextSource -->
+
 Checked archives support `exact.Result`, exact real and complex root sets,
 interval counts, reusable Sturm plans and their counts, accepted root covers,
 multiplicities, diagnostics, successful

@@ -86,7 +86,7 @@ checker also verifies the original specialized equation.
 CAD builds projection bases, decomposes the base line, and lifts stacks of
 sections and sectors over lower-dimensional cells. Projection and lifting
 justify signs throughout a cell. Complete CAD, a single queried cell, and a
-selective covering carry different coverage obligations. The [CAD tutorial](../tutorial/cad.md)
+selective covering carry different coverage obligations. The [CAD tutorial](../tutorial/array-systems.md#state-real-sign-constraints-directly)
 explains which operation to choose; the [extension theory](../theory/extensions.md)
 sets out the proof requirements.
 

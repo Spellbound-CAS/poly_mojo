@@ -31,6 +31,9 @@
     "docs/examples/tutorial_first.mojo": {
       "stdout": "Value at 3: 64\nDerivative at 3: 48\n"
     },
+    "docs/examples/tutorial_steps.mojo": {
+      "stdout": "Steps for (1+x)^100: 329732\nStopped by max_steps=10000: True\nFinished within max_steps=1000000, degree 100\n"
+    },
     "docs/examples/tutorial_division.mojo": {
       "stdout": "Quotient is x + 1: True\nRemainder: 2\n"
     },
@@ -59,16 +62,13 @@
       "stdout": "Basis elements: 2\nMembership checked: True\n"
     },
     "docs/examples/tutorial_errors.mojo": {
-      "stdout": "Work exhaustion handled: True\nUnknown variable handled: True\n"
+      "stdout": "Work exhaustion handled: True\nZero divisor handled: True\n"
     },
     "docs/examples/tutorial_numerical.mojo": {
       "stdout": "Rounded value at 1.5: 0.25\nEnclosure checked: True\n"
     },
     "docs/examples/tutorial_refinement.mojo": {
       "stdout": "Distinct real roots: 2\nComplete cover: True\nRequested width reached: True\n"
-    },
-    "docs/examples/tutorial_named.mojo": {
-      "stdout": "Value at 3: 64\nDerivative at 3: 48\n"
     },
     "docs/examples/array_api.mojo": {
       "stdout": "ZZ [1, 2, 3]\n17\n[1, 0, -1]\nQQi ExactComplex(2, 4)\n31\n[((0, 1), 6)]\nGF(7) 5\nQQ 5\n14\nwork limit reached\n"

@@ -10,7 +10,7 @@ Linux (x86-64 and ARM64) and macOS with Apple silicon; the
 | Area | Supported workflows |
 |---|---|
 | Functional arrays | Coefficient-first dense and sparse APIs, numerical contexts, algebraic evaluation, serialization, and batch broadcasting |
-| Construction and arithmetic | Named rings, dense and sparse values, exact and numerical domains, conversions and text interchange |
+| Construction and arithmetic | Dense and sparse arrays, exact and numerical domains, conversions, named display, and serialization |
 | Polynomial toolkit | Calculus, transformations, multipoint evaluation, interpolation, alternative bases, formal series, rational utilities |
 | Exact algebra | Division, pseudo-division, gcds, resultants, univariate and multivariate factorization |
 | Multivariate ideals | Gröbner bases, reduction, and certified membership over exact fields |

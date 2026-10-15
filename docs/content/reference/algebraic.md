@@ -1,6 +1,6 @@
 # Exact real algebraic numbers
 
-For a worked introduction, see the [tutorial](../tutorial/algebraic-numbers.md).
+For the array workflow, see [algebraic coefficients](../tutorial/algebraic-coefficients.md).
 Values are exact real roots of monic rational polynomials with a unique-root
 Sturm witness. Factories choose irreducible definitions and represent rationals
 by a linear polynomial and equal endpoints. Checkers also accept nonminimal

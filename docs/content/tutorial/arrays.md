@@ -1,6 +1,8 @@
 # Calculate with polynomial arrays
 
 Use `poly.dense` for ascending coefficients and `poly.sparse` for nonzero terms.
+Dense storage suits a univariate polynomial with many occupied degrees; sparse
+storage handles several variables and avoids storing absent powers.
 Both infer exact coefficient domains and return immutable, iterable results.
 The same function names cover arithmetic, powers, calculus, division, and
 evaluation in either representation.
@@ -123,7 +125,6 @@ or numerical coefficients.
 | Exact division or several divisors | `divide_exact`, `pseudo_divmod`, `divide_many` | Same; pseudo-division requires one axis |
 | Irreducible factors or multiplicity blocks | `factor`, `squarefree` | `factor`; `squarefree` requires one axis |
 | Recover from samples | `interpolate`, `hermite_interpolate`, `prepare_points` | Convert the dense result with `poly.to_sparse` |
-| Use core algorithms | `to_core`, `from_core` | Same, with explicit variable maps |
 | Find exact real roots | `real_roots`, `count_roots`, `root_between` | Same, for one variable |
 | Certified root covers | `real_root_cover`, `complex_root_cover` | Same, for one variable |
 | Prepare and query ideals | Use sparse polynomials | `groebner`, `reduce`, `contains`, `membership` |
@@ -142,7 +143,7 @@ having the highest comparison priority.
 For precise signatures and shared conventions, see the
 [array API reference](../reference/array-api.md); [budgets and errors](../guides/errors.md)
 explains work limits. Continue with [exact array algebra](array-exact.md) for factorization,
-interpolation, elimination, and core interoperability. The `poly` namespaces
+interpolation, and elimination. The `poly` namespaces
 also expose root finding, Gröbner bases, CAD, and their certificate checks.
 
 Continue with [root finding and algebraic values](array-roots.md), or use

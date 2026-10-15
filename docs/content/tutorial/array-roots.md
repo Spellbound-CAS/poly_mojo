@@ -159,13 +159,12 @@ also accept Gaussian rationals and `QQbar`. Covers accept prepared
 [numerical arrays](array-numeric.md), including ball coefficient families. Complex
 rational components enter certification exactly; algebraic coefficients retain
 checked conversion witnesses. The
-[numerical-root tutorial](numerical-roots.md) explains the underlying enclosure
-methods and their core interfaces.
+[numerical guarantees](../theory/numerical.md) explain the underlying enclosure
+methods.
 
 ## Process witnesses as they arrive
 
-Numerical root-cover `_to` functions feed the existing core sink protocols
-directly. They do not build a complete result and then iterate over it. The following program uses an
+Numerical root-cover `_to` functions feed a sink directly. They do not build a complete result and then iterate over it. The following program uses an
 independent checker as the consumer:
 
 <!-- example: docs/examples/array_solver_streams.mojo -->

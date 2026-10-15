@@ -2,9 +2,8 @@
 
 The toolkit builds on the existing exact and numerical polynomial types.
 Every computational call takes a shared `Budget`; numerical arithmetic also
-takes an explicit apn_mojo context. The [tutorial gallery](../examples/index.md)
-provides focused examples for each group, and the
-[interchange guide](../guides/interchange.md) describes the text formats.
+takes an explicit apn_mojo context. The calculus, interpolation,
+rational-function, basis, and series groups each start with a focused example.
 
 <!-- example: docs/examples/toolkit.mojo -->
 
@@ -56,6 +55,12 @@ complete-normalization and irreducibility checks.
 
 ## Calculus and transformations
 
+For $p(x)=3x^2+2x$, `integrate_dense` returns $x^3+x^2$, and the integral
+from $0$ to $1$ is exactly $2$. The example also substitutes $x+1$ with
+`compose_dense`:
+
+<!-- example: docs/examples/tutorial_calculus.mojo -->
+
 <!-- api: src/polynomials/calculus.mojo derivative_dense -->
 
 <!-- api: src/polynomials/calculus.mojo rational_dense -->
@@ -106,6 +111,12 @@ at the same distinct nodes: it retains the inverse derivative weights as well
 as the product tree. Both plans are immutable; preparation consumes its own
 budget, and each interpolation call has a predictable work charge. The ordinary
 plan and the one-shot `interpolate` function still work without a weight cache.
+
+The values $1,4,9$ at $0,1,2$ determine $(x+1)^2$. The example builds a plan,
+interpolates, checks the result with `check_interpolation`, and reuses the
+plan for evaluation:
+
+<!-- example: docs/examples/tutorial_interpolation.mojo -->
 For arbitrary-precision exact fields, calls with at least 32 points release coefficient buffers
 after their last tree consumer. The reusable product tree stays in the plan.
 
@@ -153,6 +164,11 @@ internal memory improvements; the text format and public APIs are unchanged.
 
 ## Rational functions
 
+For $f(x)=x^2/(x-1)$, `partial_fractions` gives $x+1+1/(x-1)$. Its value at
+$2$ is $4$, and its residue at the pole $1$ is $1$:
+
+<!-- example: docs/examples/tutorial_rational.mojo -->
+
 <!-- api: src/polynomials/rational_tools.mojo rational_evaluate -->
 
 <!-- api: src/polynomials/rational_tools.mojo rational_derivative -->
@@ -181,11 +197,21 @@ internal memory improvements; the text format and public APIs are unchanged.
 
 ## Alternative bases
 
+The polynomial $x^2$ has Bernstein coefficients $0,0,1$ at degree two and
+equals $\tfrac12 T_0(x)+\tfrac12 T_2(x)$ in the Chebyshev basis. The example
+also evaluates the Bernstein form at $1/2$:
+
+<!-- example: docs/examples/tutorial_bases.mojo -->
+
 <!-- api: src/polynomials/bases.mojo BasisPolynomial -->
 
 <!-- api: src/polynomials/numeric_bases.mojo NumericBasisPolynomial -->
 
 ## Formal series
+
+Modulo $x^4$, the reciprocal of $1-x$ is $1+x+x^2+x^3$:
+
+<!-- example: docs/examples/tutorial_series.mojo -->
 
 <!-- api: src/polynomials/series.mojo TruncatedSeries -->
 

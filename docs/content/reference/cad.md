@@ -1,6 +1,6 @@
 # Cylindrical algebraic decomposition
 
-For a worked introduction, see the [tutorial](../tutorial/cad.md).
+For the array workflow, see [equations and inequalities](../tutorial/array-systems.md).
 
 `cad` constructs a complete sign-invariant decomposition of real coordinate
 space. Variables are supplied in **base-to-top** order; every input variable
