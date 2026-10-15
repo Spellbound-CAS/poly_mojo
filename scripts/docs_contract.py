@@ -89,7 +89,7 @@ def api_markdown(value, page):
     path, name = _api_target(value)
     item = find(ROOT / path, name)
     assert item is not None, f'api directive names no public declaration: {value}'
-    out = [f'### `{item.name}`', '', f'```text\n{item.signature}\n```', '', _sections_markdown(item.doc), '',
+    out = [f'### `{item.name}`', '', f'```mojo\n{item.signature}\n```', '', _sections_markdown(item.doc), '',
            f'<p class="api-source">Defined in <code>{path}</code>.</p>', '']
     fields = [m for m in item.members if m.kind == 'var']
     if fields:
@@ -101,7 +101,7 @@ def api_markdown(value, page):
     for m in item.members:
         if m.kind == 'var':
             continue
-        out += [f'#### `{item.name}.{m.name}`', '', f'```text\n{m.signature}\n```', '', _sections_markdown(m.doc), '']
+        out += [f'#### `{item.name}.{m.name}`', '', f'```mojo\n{m.signature}\n```', '', _sections_markdown(m.doc), '']
     return '\n'.join(out) + '\n'
 
 

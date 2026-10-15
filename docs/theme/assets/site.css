@@ -192,7 +192,7 @@ pre { margin: 0; overflow-x: auto; }
 .codehilite { color: var(--fg); }
 .codehilite .k, .codehilite .kd, .codehilite .kn, .codehilite .kr, .codehilite .ow { color: var(--syn-keyword); font-weight: 600; }
 .codehilite .kc { color: var(--syn-constant); font-weight: 600; }
-.codehilite .kt, .codehilite .nb, .codehilite .nc { color: var(--syn-type); }
+.codehilite .kt, .codehilite .nb, .codehilite .nc, .codehilite .n-Struct { color: var(--syn-type); }
 .codehilite .nf, .codehilite .fm { color: var(--syn-function); }
 .codehilite .nn { color: var(--syn-module); }
 .codehilite .nd { color: var(--syn-decorator); }
