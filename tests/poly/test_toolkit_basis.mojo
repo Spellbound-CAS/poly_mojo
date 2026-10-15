@@ -1,0 +1,58 @@
+"""Basis values, conversion identities, retained zeros, and domain promotion."""
+from poly import basis, dense, coefficients
+from apn_mojo import Rational, ExactComplex
+from polynomials import QQ, Budget
+from std.testing import assert_equal, assert_true
+
+
+def main() raises:
+    var cheb = basis.asarray([1, 0, 2, 0], basis="chebyshev")
+    assert_equal(len(cheb), 4)
+    assert_equal(cheb.basis(), "chebyshev")
+    assert_equal(basis.to_polynomial(cheb).to_list(), [Rational(-1), 0, 4])
+    assert_equal(basis.evaluate(cheb, 2), Rational(15))
+    var x2 = basis.from_polynomial([0, 0, 1], basis="chebyshev")
+    assert_equal(basis.coefficients(x2).to_list(), [Rational(1, 2), 0, Rational(1, 2)])
+    var newton = basis.asarray([1, 2, 3], basis="newton", nodes=[1, 2])
+    assert_equal(basis.to_polynomial(newton).to_list(), [Rational(5), -7, 3])
+    assert_equal(basis.evaluate(newton, 3), Rational(11))
+    var recovered = basis.from_polynomial([5, -7, 3], basis="newton", nodes=[1, 2])
+    assert_equal(basis.coefficients(recovered).to_list(), basis.coefficients(newton).to_list())
+    assert_equal(basis.nodes(newton).to_list(), [Rational(1), 2])
+    var bern = basis.from_polynomial([0, 0, 1], basis="bernstein", degree=3)
+    assert_equal(basis.coefficients(bern).to_list(), [Rational(0), 0, Rational(1, 3), 1])
+    var halves = basis.subdivide(bern, Rational(1, 2))
+    assert_equal(basis.to_polynomial(halves[0]).to_list(), [Rational(0), 0, Rational(1, 4)])
+    assert_equal(basis.to_polynomial(halves[1]).to_list(), [Rational(1, 4), Rational(1, 2), Rational(1, 4)])
+    assert_equal(len(halves[0]), 4)
+    assert_equal(basis.evaluate(bern, Rational(1, 3)), Rational(1, 9))
+    assert_equal(basis.to_polynomial(basis.add(x2, x2)).to_list(), [Rational(0), 0, 2])
+    assert_equal(len(basis.to_polynomial(basis.subtract(x2, x2))), 0)
+    assert_equal(basis.to_polynomial(basis.multiply(x2, x2)).to_list(), [Rational(0), 0, 0, 0, 1])
+    assert_equal(basis.to_polynomial(basis.negative(x2))[2], Rational(-1))
+    assert_equal(basis.to_polynomial(basis.derivative(bern)).to_list(), [Rational(0), 2])
+    assert_equal(basis.to_polynomial(basis.integral(x2)).to_list(), [Rational(0), 0, 0, Rational(1, 3)])
+    var padded = basis.asarray([0, 1, 0], basis="newton", nodes=[0, 0])
+    assert_equal(basis.to_polynomial(basis.multiply(padded, padded)).to_list(), [Rational(0), 0, 1])
+    assert_equal(len(basis.asarray([0, 0, 0], basis="bernstein")), 3)
+    var modular = basis.from_polynomial(dense.asarray([0, 0, 1], modulus=7), basis="chebyshev")
+    assert_equal(modular[0].value, UInt64(4))
+    assert_equal(basis.evaluate(modular, 3).value, UInt64(2))
+    var empty_mod = basis.asarray(dense.asarray(List[Int](), modulus=7), basis="chebyshev")
+    assert_equal(empty_mod.modulus(), UInt64(7))
+    var complex_nodes = basis.asarray([1, 1], basis="newton", nodes=coefficients((ExactComplex(0, 1),)))
+    assert_equal(complex_nodes.domain(), "QQi")
+    assert_equal(basis.evaluate(complex_nodes, 0), ExactComplex(1, -1))
+    assert_equal(basis.evaluate(x2, ExactComplex(0, 1)), ExactComplex(-1, 0))
+    var raw = basis.to_core(newton)
+    var independent = basis.from_core(raw)
+    raw.coefficients[0] = QQ(Rational(100))
+    raw.nodes[0] = QQ(Rational(100))
+    assert_equal(independent[0], Rational(1))
+    assert_equal(basis.nodes(independent)[0], Rational(1))
+    assert_equal(newton[0], Rational(1))
+    var total = Rational(0)
+    for c in newton:
+        total += c
+    assert_equal(total, Rational(6))
+    print("array toolkit basis checks passed")

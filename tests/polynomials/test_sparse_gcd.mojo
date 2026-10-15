@@ -1,0 +1,100 @@
+"""Sparse interpolation, large coefficients, and certified gcd identities."""
+from apn_mojo import Integer, Rational
+from polynomials import Budget, MonomialOrder, SparsePoly, NoContext, QQ, ZZ, Modulus, Monomial, prime, sparse_gcd, sparse_gcd_integer, check_common_divisor, check_coprimality, PolyError, PolyErrorKind
+from polynomials._sparse_gcd import _image, _interpolate
+from polynomials._gcd import _normalized, _gcd_value
+from polynomials._sparse_modular import _modular_gcd, _modular_gcd_cached, _SupportCache
+from support.check import Checker
+from support.corpus import parse_polynomial, as_zz
+
+
+def main() raises:
+    var work = Budget()
+    var c = Checker("sparse modular gcd")
+    var order = MonomialOrder(MonomialOrder.LEX, [Int64(0), Int64(1), Int64(2)], work)
+    var common = parse_polynomial("3*x0^5*x2 + 1267650600228229401496703205377*x1^7 + 1", order, work)
+    var left = parse_polynomial("x0 + x1 + 1", order, work)
+    var right = parse_polynomial("x0 - x1 - 1", order, work)
+    var f = common.mul(left, work)
+    var g = common.mul(right, work)
+    var result = sparse_gcd(f, g, work)
+    c.check(result.gcd == _normalized(common, work), "multiple-prime coefficient reconstruction")
+    c.check(check_common_divisor(f, g, result, work), "rational divisibility certificate")
+    c.check(check_coprimality(result.cofactors[0], result.cofactors[1], result.coprimality.value(), work), "rational maximality certificate")
+    var integer = sparse_gcd_integer(as_zz(f, work), as_zz(g, work), work)
+    c.check(integer.gcd == as_zz(common, work), "integer primitive normalization")
+    var ctx = Modulus(101, work)
+    var fm = _image(as_zz(f, work), ctx, work)
+    var gm = _image(as_zz(g, work), ctx, work)
+    var support = List[Monomial]()
+    for term in common.terms:
+        support.append(term.monomial.copy())
+    var interpolated = _interpolate(fm, gm, support, 0, 5, work)
+    c.check(Bool(interpolated), "support interpolation succeeds independently")
+    c.check(interpolated.value() == _normalized(_image(as_zz(common, work), ctx, work), work), "sparse interpolated coefficients")
+    _ = support.pop()
+    c.check(not _interpolate(fm, gm, support, 0, 5, work), "incomplete support is rejected")
+    var discovered = _modular_gcd(fm, gm, work)
+    c.check(discovered and discovered.value() == _normalized(_image(as_zz(common, work), ctx, work), work), "recursive interpolation discovers support without PRS")
+    # Both cofactors coincide at x2=0. That first specialization has an
+    # extra x0 factor and must be discarded when the gcd degree drops.
+    var sparse_common = parse_polynomial("x0*x1 + x2^3 + 1", order, work)
+    var unlucky_a = sparse_common.mul(parse_polynomial("x0", order, work), work)
+    var unlucky_b = sparse_common.mul(parse_polynomial("x0 + x2", order, work), work)
+    discovered = _modular_gcd(_image(as_zz(unlucky_a, work), ctx, work), _image(as_zz(unlucky_b, work), ctx, work), work)
+    c.check(discovered and discovered.value() == _normalized(_image(as_zz(sparse_common, work), ctx, work), work), "unlucky evaluation resets Newton interpolation")
+    var scaling_common = parse_polynomial("x0*x2 + x0 + x1 + 1", order, work)
+    var outer_content = parse_polynomial("x2 + 2", order, work)
+    scaling_common = scaling_common.mul(outer_content, work)
+    var scaled_a = scaling_common.mul(parse_polynomial("x0 + x1", order, work), work)
+    var scaled_b = scaling_common.mul(parse_polynomial("x0 - x1", order, work), work)
+    discovered = _modular_gcd(_image(as_zz(scaled_a, work), ctx, work), _image(as_zz(scaled_b, work), ctx, work), work)
+    c.check(discovered and discovered.value() == _normalized(_image(as_zz(scaling_common, work), ctx, work), work), "univariate content and polynomial leading scaling survive recursion")
+    var nested = sparse_gcd(scaled_a, scaled_b, work)
+    c.check(nested.gcd == _normalized(scaling_common, work), "integer recursive sparse content and discovery agree")
+    var high = parse_polynomial("x0 + x1^20 + 1", order, work)
+    var high_a = _image(as_zz(high.mul(parse_polynomial("x0 + 1", order, work), work), work), ctx, work)
+    var high_b = _image(as_zz(high.mul(parse_polynomial("x0 + 2", order, work), work), work), ctx, work)
+    var cache = _SupportCache()
+    var first_work = Budget()
+    var first = _modular_gcd_cached(high_a, high_b, cache, first_work)
+    var second_work = Budget()
+    var second = _modular_gcd_cached(high_a, high_b, cache, second_work)
+    c.check(Bool(first) and Bool(second) and first.value() == _normalized(_image(as_zz(high, work), ctx, work), work) and first.value() == second.value(), "recursive skeleton reuse keeps exact gcd")
+    c.check(cache.hits > 0 and second_work.remaining() > first_work.remaining(), "sparse skeleton avoids repeating high-degree discovery")
+    var changed = parse_polynomial("x0 + x1^7 + x1 + 1", order, work)
+    var changed_a = _image(as_zz(changed.mul(parse_polynomial("x0 + 1", order, work), work), work), ctx, work)
+    var changed_b = _image(as_zz(changed.mul(parse_polynomial("x0 + 2", order, work), work), work), ctx, work)
+    var recovered = _modular_gcd_cached(changed_a, changed_b, cache, work)
+    c.check(recovered and recovered.value() == _normalized(_image(as_zz(changed, work), ctx, work), work), "stale recursive support falls back to Newton discovery")
+    var small_field = Modulus(2, work)
+    var vanishing_leading_a = _image(as_zz(parse_polynomial("x0*x1^2 - x0*x1 + 1", order, work), work), small_field, work)
+    var vanishing_leading_b = _image(as_zz(parse_polynomial("x0*x1^2 - x0*x1 + x1 + 1", order, work), work), small_field, work)
+    c.check(not _modular_gcd(vanishing_leading_a, vanishing_leading_b, work), "exhausted field with no degree-preserving samples rejects the prime")
+    var content = parse_polynomial("x1 + 2", order, work)
+    var with_content = sparse_gcd(f.mul(content, work), g.mul(content, work), work)
+    c.check(with_content.gcd == _normalized(common.mul(content, work), work), "recursive polynomial content preserved")
+    var limited = Budget(1)
+    var exhausted = False
+    try:
+        _ = sparse_gcd(f, g, limited)
+    except e:
+        exhausted = e.kind == PolyErrorKind.LIMIT
+    c.check(exhausted, "budget exhaustion raises LIMIT")
+    var p = QQ(Rational(Integer(Int(prime(0, work)))))
+    var shift = SparsePoly[QQ].constant(p, order, work)
+    var x = parse_polynomial("x0", order, work)
+    var planted = parse_polynomial("x0 + x1 + 1", order, work)
+    var unlucky_f = planted.mul(x, work)
+    var unlucky_g = planted.mul(x.add(shift, work), work)
+    c.check(sparse_gcd(unlucky_f, unlucky_g, work).gcd == planted, "unlucky first prime with an extra factor is discarded")
+    var hidden_support = planted.add(parse_polynomial("x2^3", order, work).scale(p, work), work)
+    var hidden_f = hidden_support.mul(x, work)
+    var hidden_g = hidden_support.mul(parse_polynomial("x0 + 1", order, work), work)
+    c.check(sparse_gcd(hidden_f, hidden_g, work).gcd == hidden_support, "support lost at the first prime is rediscovered")
+    for i in range(1, 7):
+        var a = planted.pow(UInt64(i), work)
+        var fp = a.mul(x, work)
+        var gp = a.mul(parse_polynomial("x0 + 1", order, work), work)
+        c.check(sparse_gcd(fp, gp, work).gcd == _gcd_value(fp, gp, work), "sparse reconstruction agrees with independent PRS path")
+    c.finish()

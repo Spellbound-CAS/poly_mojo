@@ -1,0 +1,40 @@
+[workspace]
+name = "polynomials"
+version = "1.0.0"
+description = "Exact and validated polynomial algebra in Mojo, with independently checkable certificates"
+authors = ["Anatoly Vitold Stankyavichyus <anatolyvitold@outlook.com>"]
+license = "Apache-2.0"
+channels = ["https://conda.modular.com/max", "conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64"]
+
+[tasks]
+layering = { cmd = "python scripts/check_layering.py", description = "The package imports only what its graph allows" }
+deps = { cmd = "python scripts/deps.py --output build", description = "Fetch and precompile the public library dependency, apn_mojo" }
+build = { cmd = "python scripts/build.py --output build", depends-on = ["deps"], description = "Prepare one shared library build and record its diagnostics" }
+docstrings = { cmd = "python scripts/check_docstrings.py", description = "Every public declaration has a docstring" }
+corpus-check = { cmd = "python tests/reference/check_corpus.py", description = "Check the reference corpus independently of its generator and of the package" }
+kernel-vectors-check = { cmd = "python tests/reference/kernel/gen_poly_ops.py | cmp - tests/reference/kernel/poly_ops.txt", description = "The kernel vectors match their generator" }
+test-tooling = { cmd = "python -m unittest discover -s tests -p 'test_*tooling.py'", description = "Check dependency isolation and test selection without fetching dependencies" }
+test-library = { cmd = "python scripts/suite.py --library-only --report .cache/tests/library.json", depends-on = ["layering", "corpus-check", "kernel-vectors-check", "docstrings", "test-tooling"], description = "Compile one library runtime executable and run its tests" }
+test-rejections = { cmd = "python scripts/check_rejections.py", description = "Compile invalid programs separately and check their diagnostics" }
+test-api = { cmd = "python scripts/check_array_api.py", description = "Run focused API checks against the shared library build" }
+docs-test = { cmd = "python scripts/verify_docs_examples.py", description = "Run documentation examples against the shared library build" }
+
+[dependencies]
+mojo = "==1.1.0"
+python = ">=3.11"
+# apn_mojo is built from its pinned commit by `pixi run deps`.
+
+[feature.docs.dependencies]
+python = "3.14.*"
+mkdocs = "==1.6.1"
+pygments = "==2.19.2"
+pymdown-extensions = "==12.1"
+
+[feature.docs.tasks]
+docs-build = "python -m mkdocs build --strict"
+docs-serve = "python -m mkdocs serve"
+docs-check = "python scripts/check_docs.py"
+
+[environments]
+docs = { features = ["docs"], no-default-feature = true }

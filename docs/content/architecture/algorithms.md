@@ -1,0 +1,98 @@
+# Exact algorithms and their evidence
+
+Exact algorithms work over integer, rational, Gaussian rational, or prime-field
+coefficients as each operation permits. The implementation chooses a useful
+computational route, then verifies reconstructed candidates or returns evidence
+that a separate checker can inspect.
+
+## Division, gcds, and elimination
+
+Field division cancels leading coefficients directly. Pseudo-division keeps
+coefficients in a ring by carrying an explicit scale. Multivariate ordered
+reduction uses an admissible order to make each reduction decrease.
+
+Gcd computation combines content handling, polynomial remainder sequences,
+and modular techniques. Modular reconstruction avoids carrying large rational
+coefficients through every intermediate step. Unlucky primes or evaluation
+points can change apparent degree or support, so reconstructed candidates are
+checked by exact trial division.
+
+The explicit sparse gcd path discovers support through recursive evaluation
+and interpolation, then reconstructs coefficients across a fixed sequence of
+primes. It visits occurring exponent groups and reuses support only while the
+samples remain compatible. Failed support assumptions trigger renewed discovery.
+
+Gcd evidence separates divisibility from maximality. Cofactors establish the
+former; Bézout identities or coprimality certificates establish the latter.
+The coprimality arena uses backward references and explicit content-gcd folds.
+The checker validates each referenced input pair rather than trusting a node
+merely because another pair already used it.
+
+Resultants follow the specified Sylvester sign convention. A generic resultant
+certificate records an ideal identity. Where CAD needs the determinant itself,
+its projection certificate adds determinant evidence and an independent check.
+After a defective subresultant degree drop, a scaling ratio may be a rational
+function in the remaining variables. The implementation multiplies it into the
+subresultant or Bézout numerator before exact division when the ratio itself is
+not polynomial. This preserves the cancellation required by the Sylvester
+minors over polynomial coefficient rings.
+
+## Factorization
+
+Univariate factorization separates content and repeated factors, factors over
+a suitable prime field, lifts the factors, and recombines them over the integers
+or rationals. The implementation includes Hensel lifting and exact LLL with
+van Hoeij trace-knapsack constraints for recombination. Lifted factors and
+correction data persist between precision increases.
+
+Multivariate factorization uses deterministic evaluation points, a monic
+transformation, and multivariate Hensel lifting. A good specialization can
+split an original factor further; recombination and exact division recover
+the original factors without assuming the specialized factors already match.
+Recursive content is handled separately.
+
+The public product checker verifies the unit, factors, and multiplicities
+multiply to the input. It deliberately does not rerun factorization to prove
+irreducibility. The [factorization theory](../theory/factorization.md) supplies
+the algorithmic justification for the producer's stronger result.
+
+## Gröbner bases
+
+Buchberger's algorithm uses Gebauer–Möller pair pruning and deterministic pair
+selection by the smallest least common multiple of leading monomials, with
+stable index tie breaks. The
+returned basis is reduced, monic, and sorted by decreasing leading monomial.
+Optional cofactor tracking expresses basis elements in terms of the original
+generators.
+
+Ideal membership enables tracking and returns the multipliers for a direct
+polynomial identity. This keeps membership checking independent of pair
+selection, pruning, or basis construction. See [Gröbner theory](../theory/groebner.md)
+for the criteria and termination arguments.
+
+## Real roots and algebraic geometry
+
+Sturm sequences establish distinct real-root counts through sign variations.
+Isolation separates exact rational roots from intervals containing irrational
+roots; refinement narrows a selected interval while preserving its count.
+Repeated roots require explicit multiplicity information rather than reading
+multiplicity from a distinct-root count.
+
+Real algebraic arithmetic uses elimination to produce an annihilating
+polynomial, then certified interval information to select the intended root.
+Specialization at algebraic values can produce extra elimination roots; the
+checker also verifies the original specialized equation.
+
+CAD builds projection bases, decomposes the base line, and lifts stacks of
+sections and sectors over lower-dimensional cells. Projection and lifting
+justify signs throughout a cell. Complete CAD, a single queried cell, and a
+selective covering carry different coverage obligations. The [CAD tutorial](../tutorial/cad.md)
+explains which operation to choose; the [extension theory](../theory/extensions.md)
+sets out the proof requirements.
+
+## Performance evidence
+
+Dispatch thresholds and storage choices are implementation details constrained
+by these contracts. Measure the relevant workload before changing a threshold,
+and check small cases as well as the large case that motivates an
+optimization.

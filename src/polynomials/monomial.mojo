@@ -1,0 +1,328 @@
+"""Canonical sparse monomials and explicit deterministic orders."""
+from std.hashlib import Hasher
+from .errors import Budget, PolyError, PolyErrorKind, _sum, _allocation
+
+struct Monomial(Copyable, Movable, Equatable, Hashable, Writable):
+    """A product of variables with increasing indices and positive exponents."""
+    var pairs: List[Tuple[Int64, UInt32]]
+    """The canonical pairs; callers must preserve their invariant."""
+
+    def __init__(out self):
+        """Construct the unit monomial."""
+        self.pairs = List[Tuple[Int64, UInt32]]()
+
+    def __init__(out self, var pairs: List[Tuple[Int64, UInt32]], mut budget: Budget) raises PolyError:
+        """Validate and take ownership of canonical pairs.
+
+        Args:
+            pairs: Increasing indices with positive exponents.
+            budget: The shared work allowance.
+
+        Raises:
+            PolyError: DOMAIN for invalid pairs or LIMIT on exhaustion.
+        """
+        self.pairs = pairs^
+        self.check_invariants(budget)
+
+    def __eq__(self, other: Self) -> Bool:
+        """Compare canonical pairs (a protocol exception to explicit budgets).
+
+        Args:
+            other: The other monomial.
+
+        Returns:
+            Whether the pairs agree.
+        """
+        return self.pairs == other.pairs
+
+    def __hash__[H: Hasher](self, mut hasher: H):
+        """Hash the canonical pairs without exposing iteration order.
+
+        Parameters:
+            H: The hasher type.
+
+        Args:
+            hasher: The accumulating hasher.
+        """
+        len(self.pairs).__hash__(hasher)
+        for pair in self.pairs:
+            pair[0].__hash__(hasher)
+            pair[1].__hash__(hasher)
+
+    def check_invariants(self, mut budget: Budget) raises PolyError:
+        """Check increasing indices and positive exponents.
+
+        Args:
+            budget: The shared work allowance.
+
+        Raises:
+            PolyError: DOMAIN for malformed pairs or LIMIT on exhaustion.
+        """
+        for i in range(len(self.pairs)):
+            budget.charge(1)
+            if self.pairs[i][1] == 0 or (i > 0 and self.pairs[i - 1][0] >= self.pairs[i][0]):
+                raise PolyError(PolyErrorKind.DOMAIN, "noncanonical monomial")
+
+    def degree(self, mut budget: Budget) raises PolyError -> UInt64:
+        """Sum the exponents with overflow checks.
+
+        Args:
+            budget: The shared work allowance.
+
+        Returns:
+            The total degree.
+
+        Raises:
+            PolyError: CAPACITY on overflow or LIMIT on exhaustion.
+        """
+        var result = UInt64(0)
+        for pair in self.pairs:
+            budget.charge(1)
+            if UInt64.MAX - result < UInt64(pair[1]):
+                raise PolyError(PolyErrorKind.CAPACITY, "total degree overflow")
+            result += UInt64(pair[1])
+        return result
+
+    def exponent(self, index: Int64, mut budget: Budget) raises PolyError -> UInt32:
+        """Find a variable's exponent by binary search.
+
+        Args:
+            index: The variable index.
+            budget: The shared work allowance.
+
+        Returns:
+            Its exponent, or zero if absent.
+
+        Raises:
+            PolyError: LIMIT on exhaustion.
+        """
+        var lo = 0
+        var hi = len(self.pairs)
+        while lo < hi:
+            budget.charge(1)
+            var mid = lo + (hi - lo) // 2
+            if self.pairs[mid][0] < index:
+                lo = mid + 1
+            else:
+                hi = mid
+        if lo < len(self.pairs) and self.pairs[lo][0] == index:
+            return self.pairs[lo][1]
+        return 0
+
+    def mul(self, other: Self, mut budget: Budget) raises PolyError -> Self:
+        """Multiply by merging exponent lists.
+
+        Args:
+            other: The other monomial.
+            budget: The shared work allowance.
+
+        Returns:
+            The canonical product.
+
+        Raises:
+            PolyError: CAPACITY on exponent overflow or LIMIT on exhaustion.
+        """
+        return self._merge(other, False, budget)
+
+    def lcm(self, other: Self, mut budget: Budget) raises PolyError -> Self:
+        """Take componentwise maximum exponents.
+
+        Args:
+            other: The other monomial.
+            budget: The shared work allowance.
+
+        Returns:
+            The least common multiple.
+
+        Raises:
+            PolyError: LIMIT or CAPACITY on work limits.
+        """
+        return self._merge(other, True, budget)
+
+    def _merge(self, other: Self, maximum: Bool, mut budget: Budget) raises PolyError -> Self:
+        var count = _sum(len(self.pairs), len(other.pairs))
+        _allocation[Tuple[Int64, UInt32]](count, budget)
+        var result = Self()
+        result.pairs.reserve(count)
+        var i = 0
+        var j = 0
+        while i < len(self.pairs) or j < len(other.pairs):
+            if j == len(other.pairs) or (i < len(self.pairs) and self.pairs[i][0] < other.pairs[j][0]):
+                result.pairs.append(self.pairs[i])
+                i += 1
+            elif i == len(self.pairs) or other.pairs[j][0] < self.pairs[i][0]:
+                result.pairs.append(other.pairs[j])
+                j += 1
+            else:
+                var a = self.pairs[i][1]
+                var b = other.pairs[j][1]
+                var e = max(a, b)
+                if not maximum:
+                    if UInt32.MAX - a < b:
+                        raise PolyError(PolyErrorKind.CAPACITY, "monomial exponent overflow")
+                    e = a + b
+                result.pairs.append((self.pairs[i][0], e))
+                i += 1
+                j += 1
+        return result^
+
+    def divides(self, other: Self, mut budget: Budget) raises PolyError -> Bool:
+        """Test componentwise exponent inclusion.
+
+        Args:
+            other: The proposed multiple.
+            budget: The shared work allowance.
+
+        Returns:
+            Whether this monomial divides the other.
+
+        Raises:
+            PolyError: LIMIT on exhaustion.
+        """
+        for pair in self.pairs:
+            budget.charge(1)
+            if pair[1] > other.exponent(pair[0], budget):
+                return False
+        return True
+
+    def div(self, other: Self, mut budget: Budget) raises PolyError -> Self:
+        """Divide by a monomial exactly.
+
+        Args:
+            other: The proposed divisor.
+            budget: The shared work allowance.
+
+        Returns:
+            The canonical quotient.
+
+        Raises:
+            PolyError: DOMAIN if indivisible or LIMIT on exhaustion.
+        """
+        if not other.divides(self, budget):
+            raise PolyError(PolyErrorKind.DOMAIN, "monomial is not divisible")
+        var result = Self()
+        for pair in self.pairs:
+            budget.charge(1)
+            var e = pair[1] - other.exponent(pair[0], budget)
+            if e:
+                result.pairs.append((pair[0], e))
+        return result^
+
+struct MonomialOrder(Copyable, Movable, Equatable, Writable):
+    """An explicit variable order, or the kernel's canonical storage order."""
+    var kind: UInt8
+    """One of KERNEL, LEX, GRLEX, or GREVLEX."""
+    var variables: List[Int64]
+    """Variables from greatest to least; empty for KERNEL."""
+    comptime KERNEL = UInt8(0)
+    """Lexicographic pairs, with a proper prefix first."""
+    comptime LEX = UInt8(1)
+    """Lexicographic exponent order."""
+    comptime GRLEX = UInt8(2)
+    """Total degree followed by lexicographic order."""
+    comptime GREVLEX = UInt8(3)
+    """Total degree followed by reversed last differing exponent."""
+
+    def __init__(out self):
+        """Construct the kernel storage order."""
+        self.kind = Self.KERNEL
+        self.variables = List[Int64]()
+
+    def __init__(out self, kind: UInt8, var variables: List[Int64], mut budget: Budget) raises PolyError:
+        """Validate and construct an explicit order.
+
+        Args:
+            kind: The order kind.
+            variables: The variable priority list.
+            budget: The shared work allowance.
+
+        Raises:
+            PolyError: DOMAIN for invalid kind or repeated variables, LIMIT on exhaustion.
+        """
+        self.kind = kind
+        self.variables = variables^
+        if kind > Self.GREVLEX or (kind == Self.KERNEL and len(self.variables) != 0):
+            raise PolyError(PolyErrorKind.DOMAIN, "invalid monomial order")
+        for i in range(len(self.variables)):
+            budget.charge(1)
+            for j in range(i):
+                budget.charge(1)
+                if self.variables[i] == self.variables[j]:
+                    raise PolyError(PolyErrorKind.DOMAIN, "repeated order variable")
+
+    def __eq__(self, other: Self) -> Bool:
+        """Compare kinds and priority lists (a protocol budget exception).
+
+        Args:
+            other: The other order.
+
+        Returns:
+            Whether the orders agree.
+        """
+        return self.kind == other.kind and self.variables == other.variables
+
+    def validate(self, monomial: Monomial, mut budget: Budget) raises PolyError:
+        """Check that a canonical monomial belongs to this variable domain.
+
+        Args:
+            monomial: The monomial to validate.
+            budget: The shared work allowance.
+
+        Raises:
+            PolyError: DOMAIN for unknown variables or LIMIT on exhaustion.
+        """
+        monomial.check_invariants(budget)
+        if self.kind == Self.KERNEL:
+            return
+        for pair in monomial.pairs:
+            budget.charge(1)
+            var found = False
+            for variable in self.variables:
+                budget.charge(1)
+                if variable == pair[0]:
+                    found = True
+                    break
+            if not found:
+                raise PolyError(PolyErrorKind.DOMAIN, "variable absent from order")
+
+    def compare(self, a: Monomial, b: Monomial, mut budget: Budget) raises PolyError -> Int:
+        """Compare monomials under this order after domain validation.
+
+        Args:
+            a: The left monomial.
+            b: The right monomial.
+            budget: The shared work allowance.
+
+        Returns:
+            Minus one, zero, or one.
+
+        Raises:
+            PolyError: DOMAIN for unknown variables, LIMIT or CAPACITY for work limits.
+        """
+        self.validate(a, budget)
+        self.validate(b, budget)
+        return self._compare(a, b, budget)
+
+    def _compare(self, a: Monomial, b: Monomial, mut budget: Budget) raises PolyError -> Int:
+        if self.kind == Self.KERNEL:
+            for i in range(min(len(a.pairs), len(b.pairs))):
+                budget.charge(1)
+                if a.pairs[i][0] != b.pairs[i][0]:
+                    return -1 if a.pairs[i][0] < b.pairs[i][0] else 1
+                if a.pairs[i][1] != b.pairs[i][1]:
+                    return -1 if a.pairs[i][1] < b.pairs[i][1] else 1
+            return Int(len(a.pairs) > len(b.pairs)) - Int(len(a.pairs) < len(b.pairs))
+        if self.kind != Self.LEX:
+            var ad = a.degree(budget)
+            var bd = b.degree(budget)
+            if ad != bd:
+                return -1 if ad < bd else 1
+        for i in range(len(self.variables)):
+            budget.charge(1)
+            var j = len(self.variables) - 1 - i if self.kind == Self.GREVLEX else i
+            var ae = a.exponent(self.variables[j], budget)
+            var be = b.exponent(self.variables[j], budget)
+            if ae != be:
+                var result = -1 if ae < be else 1
+                return -result if self.kind == Self.GREVLEX else result
+        return 0

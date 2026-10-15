@@ -1,0 +1,3 @@
+# Copied reference sources and the generated corpus: not this package's code.
+reference/** linguist-vendored
+tests/reference/corpus.txt linguist-generated

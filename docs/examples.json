@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "examples": {
+    "docs/examples/complex_groebner.mojo": {
+      "stdout": "Exact complex basis elements: 2\nx^3 reduces exactly to i\nComplex membership certificate checked\n"
+    },
+    "docs/examples/algebraic_numbers.mojo": {
+      "stdout": "sqrt(2) squared: 2\nArithmetic certificate checked\n"
+    },
+    "docs/examples/cad.mojo": {
+      "stdout": "Unit-circle plane cells: 13\nProjection, lifting and coverage checked\nDisk interior found with two selective stacks\n"
+    },
+    "docs/examples/arithmetic.mojo": {
+      "stdout": "Value at 3: 64\nDerivative at 3: 48\nKernel bytes: 100\n"
+    },
+    "docs/examples/gcd.mojo": {
+      "stdout": "gcd and cancellation certificates checked\n"
+    },
+    "docs/examples/algebra.mojo": {
+      "stdout": "Factors: 2\nBasis elements: 2\nExact real roots: 2\nAll certificates checked\n"
+    },
+    "docs/examples/numerical.mojo": {
+      "stdout": "Rounded value at 3: 16.0\nEnclosure checked: True\nReal root cover checked: True\nComplex roots: 2\nComplex root cover checked: True\n"
+    },
+    "docs/examples/toolkit.mojo": {
+      "stdout": "Calculus, interpolation and interchange checked\nBasis conversion and formal series checked\nPartial fractions and Laurent expansion checked\nNumerical division, root refinement and multiplicity checked\n"
+    },
+    "docs/examples/streaming.mojo": {
+      "stdout": "Canonical text consumed in chunks\nReal and complex root streams checked\nCylindrical coverage checked incrementally\n"
+    },
+    "docs/examples/tutorial_first.mojo": {
+      "stdout": "Value at 3: 64\nDerivative at 3: 48\n"
+    },
+    "docs/examples/tutorial_division.mojo": {
+      "stdout": "Quotient is x + 1: True\nRemainder: 2\n"
+    },
+    "docs/examples/tutorial_calculus.mojo": {
+      "stdout": "Integral from 0 to 1: 2\nSubstitution checked: True\n"
+    },
+    "docs/examples/tutorial_interpolation.mojo": {
+      "stdout": "Recovered (x + 1)^2: True\nValue at 2: 9\n"
+    },
+    "docs/examples/tutorial_bases.mojo": {
+      "stdout": "Bernstein coefficients: 0 0 1\nValue at 1/2: 1/4\n"
+    },
+    "docs/examples/tutorial_series.mojo": {
+      "stdout": "Reciprocal through x^3: True\nProduct modulo x^4 is 1: True\n"
+    },
+    "docs/examples/tutorial_rational.mojo": {
+      "stdout": "Value at 2: 4\nResidue at 1: 1\n"
+    },
+    "docs/examples/tutorial_factor.mojo": {
+      "stdout": "Distinct factors: 2\nProduct checked: True\n"
+    },
+    "docs/examples/tutorial_roots.mojo": {
+      "stdout": "Distinct real roots: 3\nRational root: 1/3\nIrrational-root intervals: 2\n"
+    },
+    "docs/examples/tutorial_groebner.mojo": {
+      "stdout": "Basis elements: 2\nMembership checked: True\n"
+    },
+    "docs/examples/tutorial_errors.mojo": {
+      "stdout": "Work exhaustion handled: True\nUnknown variable handled: True\n"
+    },
+    "docs/examples/tutorial_numerical.mojo": {
+      "stdout": "Rounded value at 1.5: 0.25\nEnclosure checked: True\n"
+    },
+    "docs/examples/tutorial_refinement.mojo": {
+      "stdout": "Distinct real roots: 2\nComplete cover: True\nRequested width reached: True\n"
+    },
+    "docs/examples/tutorial_named.mojo": {
+      "stdout": "Value at 3: 64\nDerivative at 3: 48\n"
+    },
+    "docs/examples/array_api.mojo": {
+      "stdout": "ZZ [1, 2, 3]\n17\n[1, 0, -1]\nQQi ExactComplex(2, 4)\n31\n[((0, 1), 6)]\nGF(7) 5\nQQ 5\n14\nwork limit reached\n"
+    },
+    "docs/examples/array_operations.mojo": {
+      "stdout": "Quotient: [-1/4, 1/2]\nRemainder: [5/4]\nIntegral: [0, 1, 1/2]\nCoefficients: [0, 1, -2, 1]\nValues: [0, 0, 2, 0]\nTerms: [(1, 1), (2, -2), (3, 1)]\nDense again: [0, 1, -2, 1]\nSurface: [0, 31, 0]\nTotal degree: 2\n"
+    },
+    "docs/examples/array_exact_algebra.mojo": {
+      "stdout": "GCD: [-2, 2]\nBezout identity checked\nScalar: 2 Distinct factors: 2\nFactor product checked\nScale: 4 Quotient: [-1, 2] Remainder: [5]\n"
+    },
+    "docs/examples/array_exact_samples.mojo": {
+      "stdout": "Recovered: [1, 2, 1]\nSamples: [1, 4, 9]\nTaylor coefficients: [4, 4, 1, 0]\nIntegral: 1/2\nSwapped axes: [((1, 0), 1), ((1, 2), 1)]\nIntegrated x: [((0, 1), 4/3)]\n"
+    },
+    "docs/examples/array_exact_core.mojo": {
+      "stdout": "Core factor product checked\nFirst factor: [-1, 1]\nVariable map round trip checked\n"
+    },
+    "docs/examples/array_solver_roots.mojo": {
+      "stdout": "Distinct real roots: 2\nPositive root squared: 2\nRefined intervals: 2\nComplete and accurate: True\n"
+    },
+    "docs/examples/array_solver_ideals.mojo": {
+      "stdout": "Basis polynomials: 2\nMember: True\nOriginal-generator identity checked\n"
+    },
+    "docs/examples/array_solver_cad.mojo": {
+      "stdout": "Interior point found: True\nContradictory constraints satisfiable: False\nCircle decomposition cells: 13\n"
+    },
+    "docs/examples/array_solver_streams.mojo": {
+      "stdout": "Real-root stream checked\nCAD stream checked\n"
+    },
+    "docs/examples/array_toolkit_series.mojo": {
+      "stdout": "Known coefficients: 6\nCoefficient of x^5: 1/120\nDerivative order: 5\n"
+    },
+    "docs/examples/array_toolkit_basis.mojo": {
+      "stdout": "Value at one half: 1/4\nSubdivision degree: 2\nDerivative at one: 2\n"
+    },
+    "docs/examples/array_toolkit_rational.mojo": {
+      "stdout": "Reduced value at one: 2\nProper fraction terms: 2\nLowest Laurent exponent: -1\nResidue at zero: 1\nIrreducible quartic denominator checked\n"
+    },
+    "docs/examples/array_numeric.mojo": {
+      "stdout": "Value: 17\nFinite enclosure: True\nSparse value: 7\n"
+    },
+    "docs/examples/array_batching.mojo": {
+      "stdout": "Batch dimensions: 2 3\nMiddle item in row two: 6\nSum coefficients: 4 2\n"
+    },
+    "docs/examples/array_serialization.mojo": {
+      "stdout": "Restored value at two: 9\nSparse value: 9\n"
+    },
+    "docs/examples/array_algebraic_points.mojo": {
+      "stdout": "Square equals two: True\nValue at y=2 equals eight: True\nSpecialization checked: True\n"
+    },
+    "docs/examples/array_root_diagnostics.mojo": {
+      "stdout": "Multiplicity: 2\nMultiplicity checked: True\nResidual: 1/4\nDiagnostics checked: True\n"
+    },
+    "docs/examples/array_extension_numerical.mojo": {
+      "stdout": "Recovered (x + 1)^2 and retained four samples\nNumerical division checked; integrated surface is 4*y\n"
+    },
+    "docs/examples/array_extension_representations.mojo": {
+      "stdout": "exp(x): five known coefficients with enclosing balls\nBernstein evaluation and subdivision enclose the expected values\n"
+    },
+    "docs/examples/array_extension_certified.mojo": {
+      "stdout": "Evaluation enclosure checked; requested accuracy reached\nUncertain input: valid enclosure, precision ceiling reached\n"
+    },
+    "docs/examples/array_extension_algebraic_roots.mojo": {
+      "stdout": "x - sqrt(2): one exact root\nx - y at y = sqrt(2): specialization and complete roots checked\n"
+    },
+    "docs/examples/array_parity_checked.mojo": {
+      "stdout": "Exact division and GCD verified\n"
+    },
+    "docs/examples/array_parity_stream.mojo": {
+      "stdout": "Streamed enclosure verified\n"
+    },
+    "docs/examples/array_parity_cad.mojo": {
+      "stdout": "Selected cell and Lazard lifting verified\n"
+    },
+    "docs/examples/array_exact_choices.mojo": {
+      "stdout": "Positive throughout [2, 3]\nResultant 9 verified from its determinant\nSparse modular GCD: x + y\nDivision remainders: -y^2 under lex, x under grlex\n"
+    },
+    "docs/examples/array_factor_fields.mojo": {
+      "stdout": "GF(3) factor multiplicity: 3\nGaussian-rational factors: 2\nSparse multiplicities: 2 3\n"
+    },
+    "docs/examples/array_algebraic_coefficients.mojo": {
+      "stdout": "AA: (x - sqrt(2))(x + sqrt(2)) = x^2 - 2\nQQbar: x - (sqrt(2) + i) vanishes exactly at sqrt(2) + i\nSparse specialization: sqrt(2)*x + y becomes 2 + y\n"
+    },
+    "docs/examples/array_complex_roots.mojo": {
+      "stdout": "Exact roots: -i and i, each with multiplicity 2\nComplete root certificate verified\n"
+    },
+    "docs/examples/array_algebraic_factor.mojo": {
+      "stdout": "AA: x^2 - 2 = (x - sqrt(2))(x + sqrt(2))\nQQbar: x^2 + 1 = (x - i)(x + i)\nSparse factors preserve axis 1 and multiplicity 3\n"
+    },
+    "docs/examples/array_algebraic_multivariate_factor.mojo": {
+      "stdout": "AA factors: 1\nQQbar factors: 2\nverified: True True\nmultiplicity: 3\n"
+    },
+    "docs/examples/array_algebraic_serialization.mojo": {
+      "stdout": "AA True True\nQQbar True\n"
+    },
+    "docs/examples/array_algebraic_numeric.mojo": {
+      "stdout": "precision: 80\nchecked: True\naccurate: True True\n"
+    },
+    "docs/examples/array_algebraic_rational.mojo": {
+      "stdout": "valuation: -1\nchecked: True\nresidue: True\n"
+    },
+    "docs/examples/array_algebraic_cad.mojo": {
+      "stdout": "satisfiable: True\nchecked: True\nexact sample: True\ncells on the line: 3\nstream checked: True\nstream stacks and cells: 2 3\n"
+    },
+    "docs/examples/array_algebraic_stream.mojo": {
+      "stdout": "Algebraic stream verified\n"
+    },
+    "docs/examples/array_value_serialization.mojo": {
+      "stdout": "Known series coefficients: 6\nBasis: newton coefficient count: 3\nLast Newton node: 3\nRestored fraction at three: 4\nFraction verified: True\nBatch shape: 2 by 3\nImplicit zero precision: 96\n"
+    },
+    "docs/examples/array_checked_serialization.mojo": {
+      "stdout": "Restored division evidence checked\n"
+    },
+    "docs/examples/array_fraction_enclosures.mojo": {
+      "stdout": "Certified fraction value and restored evidence checked\n"
+    },
+    "docs/examples/array_batch_reductions.mojo": {
+      "stdout": "Row sums at x=2: 6 17\nTotal at x=2: 23\n"
+    },
+    "docs/examples/array_batch_interop.mojo": {
+      "stdout": "Column sums: 5 7 9\n"
+    },
+    "docs/examples/array_workflow_accumulate.mojo": {
+      "stdout": "Row totals: 6 15\n"
+    },
+    "docs/examples/array_workflow_covers.mojo": {
+      "stdout": "One root of x - sqrt(2), with conversion and cover evidence checked\n"
+    },
+    "docs/examples/array_workflow_root_stream.mojo": {
+      "stdout": "Distinct complex roots: 2\nTotal multiplicity: 4\n"
+    },
+    "docs/examples/array_workflow_specialization.mojo": {
+      "stdout": "sqrt(2)*x + 2 has root -sqrt(2); specialization and roots checked\n"
+    },
+    "docs/examples/array_workflow_fraction.mojo": {
+      "stdout": "1/3 enclosed with certified accuracy\n"
+    },
+    "docs/examples/array_access_interop.mojo": {
+      "stdout": "Numerical coefficients preserved across variable maps\n"
+    },
+    "docs/examples/array_access_dtype.mojo": {
+      "stdout": "Rounded precision: 30\nReal coefficients enclosed in complex balls\n"
+    },
+    "docs/examples/array_access_inspection.mojo": {
+      "stdout": "Lex selects 3*x^2; graded lex selects 5*y^3\nOccurring axes: 0, 1\n"
+    },
+    "docs/examples/array_access_sturm.mojo": {
+      "stdout": "Negative roots: 1\nPositive roots: 1\n"
+    },
+    "docs/examples/array_surface_scalars.mojo": {
+      "stdout": "Integer division promotes to QQ\nStored terms after scaling: 1\n"
+    },
+    "docs/examples/array_surface_format.mojo": {
+      "stdout": "(3)*t^2 + (-2)*t + (1)\n(3)*u^2*v + (-1)\n"
+    },
+    "docs/examples/array_surface_kernel.mojo": {
+      "stdout": "Kernel payload bytes: 31\nRestored QQ coefficients with three axes\n"
+    },
+    "docs/examples/array_surface_interop.mojo": {
+      "stdout": "Restored series order: 5\nRepresentation copies preserve stored coefficients\n"
+    },
+    "docs/examples/array_fixed_cad.mojo": {
+      "stdout": "Cells on y = sqrt(2): 3\nExact satisfying point checked\nRestricted stream checked\nSaved coordinate binding checked\n"
+    }
+  }
+}

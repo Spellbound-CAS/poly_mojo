@@ -1,0 +1,1500 @@
+# Fixed inputs for gen_corpus.py; no expected output values.
+# Extracted from the existing 189-case corpus to preserve regression coverage.
+
+case order.lex.1
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x1^2*x2^3
+in b x1^3*x3
+end
+
+case order.lex.2
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^3*x1^2*x2*x3^3
+in b x0*x1^2*x2^2*x3
+end
+
+case order.lex.3
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^3*x1^3*x2^2
+in b x0^3*x2^3*x3^3
+end
+
+case order.lex.4
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^3*x1^2*x2*x3^3
+in b x2^2*x3^3
+end
+
+case order.lex.5
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^2*x1*x2
+in b x0*x1^2*x2^3*x3^3
+end
+
+case order.lex.6
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^2*x3^2
+in b x0^3*x1*x2^2*x3^2
+end
+
+case order.lex.7
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0*x2^3*x3^3
+in b x0*x1^2*x2^3*x3^3
+end
+
+case order.lex.8
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^2*x1^2*x3^3
+in b x1^2
+end
+
+case order.lex.9
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x1*x3
+in b x2^2*x3
+end
+
+case order.lex.10
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^2*x1^3*x2^3*x3^2
+in b x0^3*x3^3
+end
+
+case order.lex.11
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x0^3*x1^2*x2*x3
+in b x0^3*x2*x3^2
+end
+
+case order.lex.12
+op compare
+ring QQ
+order lex 1 0 2 3
+in a x1^2*x2*x3^2
+in b x0*x2*x3^3
+end
+
+case order.grlex.1
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0*x1^3*x2^2*x3^3
+in b x1^3*x2^2*x3^2
+end
+
+case order.grlex.2
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0*x1*x2^2*x3^3
+in b x0^3*x1^2*x2^2*x3^2
+end
+
+case order.grlex.3
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x1^2*x2*x3^3
+in b x0^2*x1^2*x2^2
+end
+
+case order.grlex.4
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x2*x3^3
+in b x0^3*x1^3*x2*x3
+end
+
+case order.grlex.5
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0^2*x1*x2^2*x3^2
+in b x0^2*x1^3*x3
+end
+
+case order.grlex.6
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0^3*x2*x3
+in b x0^3*x1^3*x2
+end
+
+case order.grlex.7
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0*x1^2*x2^2*x3
+in b x1
+end
+
+case order.grlex.8
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0^3*x1^2*x2*x3
+in b x0^3*x1^2*x2^2*x3
+end
+
+case order.grlex.9
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0^2*x1^2*x2^3*x3
+in b x1*x2*x3^3
+end
+
+case order.grlex.10
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x0^3*x1*x2^2*x3
+in b x0^2*x1^2*x3^3
+end
+
+case order.grlex.11
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x1^2*x3^2
+in b x0^2*x1^2*x2^3
+end
+
+case order.grlex.12
+op compare
+ring QQ
+order grlex 3 1 0 2
+in a x1*x2^3
+in b x0^2*x2
+end
+
+case order.grevlex.1
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0^2*x2
+in b x0^2*x1
+end
+
+case order.grevlex.2
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0^2*x1^3*x3
+in b x0^3*x1*x2^2*x3
+end
+
+case order.grevlex.3
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0
+in b x0^3*x1^3*x2*x3
+end
+
+case order.grevlex.4
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0*x1^2*x3^2
+in b x0*x1^2*x2^2*x3^3
+end
+
+case order.grevlex.5
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0^2*x1^3*x2*x3^2
+in b x0^2*x1^2*x3
+end
+
+case order.grevlex.6
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0*x1^3*x2*x3
+in b x2^2
+end
+
+case order.grevlex.7
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0^3*x2^3
+in b x0^3*x1*x2^2*x3^2
+end
+
+case order.grevlex.8
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a 1
+in b x0^3*x1
+end
+
+case order.grevlex.9
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x1^3*x2^2*x3^3
+in b x0*x1^3*x2^2*x3^3
+end
+
+case order.grevlex.10
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0*x2^2*x3^2
+in b x0^3*x1*x2*x3^3
+end
+
+case order.grevlex.11
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0*x2^3*x3^2
+in b x0^2*x1^2*x2^3*x3
+end
+
+case order.grevlex.12
+op compare
+ring QQ
+order grevlex 2 0 1 3
+in a x0*x1^3*x3^3
+in b x0^2*x1^3*x2^2
+end
+
+case order.classic.lex_first_variable
+op compare
+ring QQ
+order lex 0 1 2
+in a x0*x1^2
+in b x1^3*x2^4
+end
+
+case order.classic.lex_last_variable
+op compare
+ring QQ
+order lex 0 1 2
+in a x0^3*x1^2*x2^4
+in b x0^3*x1^2*x2
+end
+
+case order.classic.grlex_degree_first
+op compare
+ring QQ
+order grlex 0 1 2
+in a x0*x1^2*x2^3
+in b x0^3*x1^2
+end
+
+case order.classic.grlex_tie_by_lex
+op compare
+ring QQ
+order grlex 0 1 2
+in a x0*x1^2*x2^4
+in b x0*x1*x2^5
+end
+
+case order.classic.grevlex_degree_first
+op compare
+ring QQ
+order grevlex 0 1 2
+in a x0^4*x1^7*x2
+in b x0^4*x1^2*x2^3
+end
+
+case order.classic.grevlex_tie_by_last_variable
+op compare
+ring QQ
+order grevlex 0 1 2
+in a x0*x1^5*x2^2
+in b x0^4*x1*x2^3
+end
+
+case order.classic.grlex_same_pair_as_grevlex
+op compare
+ring QQ
+order grlex 0 1 2
+in a x0*x1^5*x2^2
+in b x0^4*x1*x2^3
+end
+
+case order.classic.grlex_differs_from_grevlex
+op compare
+ring QQ
+order grlex 0 1 2
+in a x0*x2^2
+in b x1^3
+end
+
+case order.classic.grevlex_differs_from_grlex
+op compare
+ring QQ
+order grevlex 0 1 2
+in a x0*x2^2
+in b x1^3
+end
+
+case divmod.exact
+op divmod
+ring QQ
+var 0
+in f x0^4 - 1
+in g x0^2 + 1
+end
+
+case divmod.rational
+op divmod
+ring QQ
+var 0
+in f 3*x0^5 - 1/2*x0^2 + 7
+in g 2*x0^2 - 3
+end
+
+case divmod.lower_degree
+op divmod
+ring QQ
+var 0
+in f x0 + 1
+in g x0^3 - 2
+end
+
+case divmod.constant_divisor
+op divmod
+ring QQ
+var 0
+in f 6*x0^3 + 4*x0
+in g 4
+end
+
+case pseudo_divmod.small
+op pseudo_divmod
+ring ZZ
+var 0
+in f 3*x0^4 + x0^2 - 5
+in g 2*x0^2 + 3*x0 - 1
+end
+
+case pseudo_divmod.monic_divisor
+op pseudo_divmod
+ring ZZ
+var 0
+in f 7*x0^5 - 3*x0 + 2
+in g x0^2 - 2
+end
+
+case pseudo_divmod.lower_degree
+op pseudo_divmod
+ring ZZ
+var 0
+in f 5*x0 + 1
+in g 3*x0^2 - 1
+end
+
+case pseudo_divmod.large_lc
+op pseudo_divmod
+ring ZZ
+var 0
+in f 11*x0^6 + 2*x0^3 - 9
+in g 6*x0^3 - 4*x0 + 1
+end
+
+case gcd.uni.planted_qq.1
+op gcd
+ring QQ
+var 0
+in f -35*x0^9 - 79*x0^7 - 98*x0^6 - 31*x0^5 - 78*x0^4 - 40*x0^3 + 66*x0^2 + 55*x0 + 10
+in h -21*x0^9 + 7*x0^8 - 46*x0^7 + 20*x0^6 - 58*x0^5 + 12*x0^4 + 2*x0^3 - 61*x0^2 + 15*x0 + 40
+end
+
+case gcd.uni.planted_zz.1
+op gcd
+ring ZZ
+var 0
+in f -105*x0^9 - 237*x0^7 - 294*x0^6 - 93*x0^5 - 234*x0^4 - 120*x0^3 + 198*x0^2 + 165*x0 + 30
+in h -126*x0^9 + 42*x0^8 - 276*x0^7 + 120*x0^6 - 348*x0^5 + 72*x0^4 + 12*x0^3 - 366*x0^2 + 90*x0 + 240
+end
+
+case gcd.uni.planted_qq.2
+op gcd
+ring QQ
+var 0
+in f 63*x0^10 + 23*x0^9 + 4*x0^8 - 69*x0^7 + 138*x0^6 + 61*x0^5 - 183*x0^4 + 13*x0^3 + 81*x0^2 - 56*x0 - 40
+in h 27*x0^7 - 93*x0^6 + 92*x0^5 + 16*x0^4 - 93*x0^3 + 46*x0^2 + 30*x0 - 25
+end
+
+case gcd.uni.planted_zz.2
+op gcd
+ring ZZ
+var 0
+in f 189*x0^10 + 69*x0^9 + 12*x0^8 - 207*x0^7 + 414*x0^6 + 183*x0^5 - 549*x0^4 + 39*x0^3 + 243*x0^2 - 168*x0 - 120
+in h 162*x0^7 - 558*x0^6 + 552*x0^5 + 96*x0^4 - 558*x0^3 + 276*x0^2 + 180*x0 - 150
+end
+
+case gcd.uni.planted_qq.3
+op gcd
+ring QQ
+var 0
+in f 7*x0^10 + 56*x0^9 + 12*x0^8 + 18*x0^7 + 24*x0^6 - 93*x0^5 + 83*x0^4 - 91*x0^3 - 21*x0^2 + 68*x0 - 42
+in h 49*x0^7 + 91*x0^6 + 98*x0^5 + 79*x0^4 - 24*x0^3 + 7*x0^2 + 15*x0 + 21
+end
+
+case gcd.uni.planted_zz.3
+op gcd
+ring ZZ
+var 0
+in f 21*x0^10 + 168*x0^9 + 36*x0^8 + 54*x0^7 + 72*x0^6 - 279*x0^5 + 249*x0^4 - 273*x0^3 - 63*x0^2 + 204*x0 - 126
+in h 294*x0^7 + 546*x0^6 + 588*x0^5 + 474*x0^4 - 144*x0^3 + 42*x0^2 + 90*x0 + 126
+end
+
+case gcd.uni.content_zz
+op gcd
+ring ZZ
+var 0
+in f 6*x0 + 6
+in h 4*x0 + 4
+end
+
+case gcd.uni.coprime
+op gcd
+ring QQ
+var 0
+in f x0^2 + 1
+in h x0^2 - 1
+end
+
+case gcd.uni.zero_left
+op gcd
+ring QQ
+var 0
+in f 0
+in h 2*x0^2 - 4
+end
+
+case gcd.uni.zero_left_zz
+op gcd
+ring ZZ
+var 0
+in f 0
+in h -2*x0^2 + 4
+end
+
+case gcd.uni.zero_both
+op gcd
+ring QQ
+var 0
+in f 0
+in h 0
+end
+
+case gcd.uni.rational_coefficients
+op gcd
+ring QQ
+var 0
+in f 1/2*x0^3 - 1/3*x0^2 + 5/2*x0 - 5/3
+in h 3*x0^2 - 23*x0 + 14
+end
+
+case gcd.multi.alan_cas_nontermination
+op gcd
+ring QQ
+order lex 0 1 2
+in f x0*x1
+in h x0*x2
+end
+
+case gcd.multi.planted_qq.1
+op gcd
+ring QQ
+order grevlex 0 1 2
+in f -16*x0^4*x1^3*x2^2 - 18*x0^4*x1^2*x2^3 + 56*x0^2*x1^4*x2 + 75*x0^2*x1^3*x2^2 - 42*x1^4*x2
+in h 32*x0^3*x1^4*x2^2 + 36*x0^3*x1^3*x2^3 - 24*x0*x1^4*x2^2 + 72*x0^3*x1^3 + 81*x0^3*x1^2*x2 + 64*x0^2*x1^2 - 54*x0*x1^3 + 72*x0^2*x1*x2 - 48*x1^2
+end
+
+case gcd.multi.planted_zz.1
+op gcd
+ring ZZ
+order grlex 0 1 2
+in f -32*x0^4*x1^3*x2^2 - 36*x0^4*x1^2*x2^3 + 112*x0^2*x1^4*x2 + 150*x0^2*x1^3*x2^2 - 84*x1^4*x2
+in h 128*x0^3*x1^4*x2^2 + 144*x0^3*x1^3*x2^3 - 96*x0*x1^4*x2^2 + 288*x0^3*x1^3 + 324*x0^3*x1^2*x2 + 256*x0^2*x1^2 + 288*x0^2*x1*x2 - 216*x0*x1^3 - 192*x1^2
+end
+
+case gcd.multi.planted_qq.2
+op gcd
+ring QQ
+order lex 0 1 2
+in f -15*x0^4*x1^3*x2^3 - 40*x0^4*x1^2*x2^2 + 20*x0^3*x1^2*x2^3 - 18*x0^2*x1^3*x2^2 - 48*x0^2*x1^2*x2 - 21*x0^2*x1*x2^4 - 56*x0^2*x2^3 + 24*x0*x1^2*x2^2 + 28*x0*x2^4
+in h -18*x0^4*x1^3*x2^4 - 48*x0^4*x1^2*x2^3 - 21*x0^4*x1*x2^4 - 56*x0^4*x2^3 + 24*x0^3*x1^2*x2^4 + 28*x0^3*x2^4 + 9*x0^2*x1*x2^3 + 24*x0^2*x2^2 - 12*x0*x2^3
+end
+
+case gcd.multi.planted_zz.2
+op gcd
+ring ZZ
+order grlex 0 1 2
+in f -30*x0^4*x1^3*x2^3 - 80*x0^4*x1^2*x2^2 + 40*x0^3*x1^2*x2^3 - 36*x0^2*x1^3*x2^2 - 42*x0^2*x1*x2^4 - 96*x0^2*x1^2*x2 - 112*x0^2*x2^3 + 48*x0*x1^2*x2^2 + 56*x0*x2^4
+in h -72*x0^4*x1^3*x2^4 - 192*x0^4*x1^2*x2^3 - 84*x0^4*x1*x2^4 + 96*x0^3*x1^2*x2^4 - 224*x0^4*x2^3 + 112*x0^3*x2^4 + 36*x0^2*x1*x2^3 + 96*x0^2*x2^2 - 48*x0*x2^3
+end
+
+case gcd.multi.planted_qq.3
+op gcd
+ring QQ
+order grevlex 0 1 2
+in f -8*x0^3*x1^3*x2^2 - x0*x1^3*x2^4 - 16*x0^3*x1^4 - 2*x0*x1^4*x2^2 + 7*x0*x1^3*x2^3 + 14*x0*x1^4*x2 + 56*x0^2*x1^2*x2^2 + 7*x1^2*x2^4 - 49*x1^2*x2^3
+in h -5*x0^2*x1^3*x2^3 - 10*x0^2*x1^4*x2 + 7*x0^3*x1^2*x2^2 + 14*x0^3*x1^3 + 35*x0*x1^2*x2^3 - 49*x0^2*x1*x2^2 + 6*x0*x1*x2^2 + 12*x0*x1^2 - 42*x2^2
+end
+
+case gcd.multi.planted_zz.3
+op gcd
+ring ZZ
+order grlex 0 1 2
+in f -16*x0^3*x1^3*x2^2 - 2*x0*x1^3*x2^4 - 32*x0^3*x1^4 - 4*x0*x1^4*x2^2 + 14*x0*x1^3*x2^3 + 112*x0^2*x1^2*x2^2 + 28*x0*x1^4*x2 + 14*x1^2*x2^4 - 98*x1^2*x2^3
+in h -20*x0^2*x1^3*x2^3 + 28*x0^3*x1^2*x2^2 - 40*x0^2*x1^4*x2 + 56*x0^3*x1^3 + 140*x0*x1^2*x2^3 - 196*x0^2*x1*x2^2 + 24*x0*x1*x2^2 + 48*x0*x1^2 - 168*x2^2
+end
+
+case gcd.multi.content_zz
+op gcd
+ring ZZ
+order lex 0 1
+in f 6*x0*x1 + 6*x1
+in h 4*x0^2*x1^2 - 4*x1^2
+end
+
+case gcd.uni.unlucky_first_prime
+op gcd
+ring ZZ
+var 0
+in f x0^3 + 3*x0^2 - x0
+in h x0^3 + 4611686018427387850*x0^2 + 13835058055282163540*x0 - 4611686018427387847
+end
+
+case primes.first_100
+op primes
+ring ZZ
+end
+
+case resultant.uni.small
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f x0^3 + 2*x0 + 1
+in g 2*x0^2 - 3*x0 + 5
+end
+
+case resultant.uni.degrees_1_2
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f 3*x0 + 2
+in g x0^2 + x0 + 1
+end
+
+case resultant.uni.degrees_2_1
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f x0^2 + x0 + 1
+in g 3*x0 + 2
+end
+
+case resultant.uni.common_factor
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f x0^3 + 3*x0^2 - x0 - 3
+in g 2*x0^3 - x0^2 - 2*x0 + 1
+end
+
+case resultant.uni.rational
+op resultant
+ring QQ
+var 0
+in variable 0
+in f 1/2*x0^2 - 1/3
+in g x0^3 + 2/5*x0 - 1
+end
+
+case resultant.uni.random.1
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f 3*x0^4 + 8*x0^2 + 9*x0 - 2
+in g -3*x0^2 + 6*x0
+end
+
+case resultant.uni.random.2
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f -7*x0^3 - 4*x0 + 5
+in g -2*x0^5 + 8*x0^4 - 5*x0^3 - 2*x0^2 - 2*x0 + 9
+end
+
+case resultant.uni.random.3
+op resultant
+ring ZZ
+var 0
+in variable 0
+in f -6*x0^3 - x0^2 + 3*x0 + 5
+in g 2*x0^4 - x0^3 - x0^2 + 6*x0 + 3
+end
+
+case resultant.multi.circle_line
+op resultant
+ring ZZ
+order lex 0 1
+in variable 1
+in f x0^2 + x1^2 - 1
+in g x0 - x1
+end
+
+case resultant.multi.planted_common_factor
+op resultant
+ring ZZ
+order lex 0 1
+in variable 1
+in f -x0^3 - x0^2*x1^2 + x0*x1 + x1^3
+in g -x0^3*x1 - 3*x0^2 + x0*x1^2 + 3*x1
+end
+
+case resultant.multi.random.1
+op resultant
+ring ZZ
+order grevlex 0 1 2
+in variable 2
+in f x0^2*x1*x2^2 - 3*x0*x1^2*x2^2 + 8*x0^2*x1^2 - 9*x0*x1^2 + x2^3
+in g -x0^2*x2^2 - 6*x1^2*x2^2 + x1*x2^3 - 5*x2
+end
+
+case resultant.multi.random.2
+op resultant
+ring ZZ
+order grevlex 0 1 2
+in variable 2
+in f -x0^2*x2^2 + x2^3 - 9*x0*x2 + 5*x2^2 - x2
+in g x1*x2^3 - 6*x0*x1^2 - x1*x2 + 8*x2 + 9
+end
+
+case fraction.cancel_linear
+op normalize_fraction
+ring QQ
+order lex 0
+in p x0^2 - 1
+in q x0 - 1
+end
+
+case fraction.scalar_denominator
+op normalize_fraction
+ring QQ
+order lex 0
+in p 2*x0
+in q 4*x0^2
+end
+
+case fraction.zero
+op normalize_fraction
+ring QQ
+order lex 0 1
+in p 0
+in q x0 + x1
+end
+
+case fraction.multi_constant_denominator
+op normalize_fraction
+ring QQ
+order lex 0 1
+in p x0^2 - x1^2
+in q 3*x0 + 3*x1
+end
+
+case fraction.multi
+op normalize_fraction
+ring QQ
+order grevlex 0 1
+in p x0*x1 + x1
+in q 2*x0^2*x1 - 2*x1
+end
+
+case fraction.multi_order_matters
+op normalize_fraction
+ring QQ
+order lex 0 1
+in p x0 + 1
+in q -2*x0 + 5*x1
+end
+
+case fraction.multi_order_matters_reversed
+op normalize_fraction
+ring QQ
+order lex 1 0
+in p x0 + 1
+in q 5*x1 - 2*x0
+end
+
+case squarefree.grouped_multiplicities
+op squarefree
+ring QQ
+var 0
+in f 8*x0^8 - 76*x0^7 + 250*x0^6 - 277*x0^5 - 125*x0^4 + 329*x0^3 + 47*x0^2 - 120*x0 - 36
+end
+
+case squarefree.negative_unit
+op squarefree
+ring QQ
+var 0
+in f -6*x0^2 + 12*x0 - 6
+end
+
+case squarefree.alan_cas.square
+op squarefree
+ring QQ
+var 0
+in f x0^2
+end
+
+case squarefree.alan_cas.deep_multiplicity
+op squarefree
+ring QQ
+var 0
+in f x0^16
+end
+
+case squarefree.already_squarefree
+op squarefree
+ring QQ
+var 0
+in f x0^5 - x0 - 1
+end
+
+case squarefree.rational_coefficients
+op squarefree
+ring QQ
+var 0
+in f 1/4*x0^3 - 17/60*x0^2 + 2/45*x0 + 1/45
+end
+
+case squarefree.irreducible_powers
+op squarefree
+ring QQ
+var 0
+in f x0^17 - 3*x0^16 + 10*x0^15 - 22*x0^14 + 42*x0^13 - 70*x0^12 + 98*x0^11 - 126*x0^10 + 140*x0^9 - 140*x0^8 + 126*x0^7 - 98*x0^6 + 70*x0^5 - 42*x0^4 + 22*x0^3 - 10*x0^2 + 3*x0 - 1
+end
+
+case squarefree.gap_in_multiplicities
+op squarefree
+ring QQ
+var 0
+in f x0^9 + 2*x0^8 - 12*x0^7 - 24*x0^6 + 54*x0^5 + 108*x0^4 - 108*x0^3 - 216*x0^2 + 81*x0 + 162
+end
+
+case squarefree.constant
+op squarefree
+ring QQ
+var 0
+in f 7
+end
+
+case factor_mod_p.x4_plus_1.p3
+op factor_mod_p
+ring GF 3
+var 0
+in f x0^4 + 1
+end
+
+case factor_mod_p.x4_plus_1.p5
+op factor_mod_p
+ring GF 5
+var 0
+in f x0^4 + 1
+end
+
+case factor_mod_p.x4_plus_1.p7
+op factor_mod_p
+ring GF 7
+var 0
+in f x0^4 + 1
+end
+
+case factor_mod_p.x4_plus_1.p13
+op factor_mod_p
+ring GF 13
+var 0
+in f x0^4 + 1
+end
+
+case factor_mod_p.x4_plus_1.p17
+op factor_mod_p
+ring GF 17
+var 0
+in f x0^4 + 1
+end
+
+case factor_mod_p.x8_minus_1.p17
+op factor_mod_p
+ring GF 17
+var 0
+in f x0^8 + 16
+end
+
+case factor_mod_p.irreducible.p7
+op factor_mod_p
+ring GF 7
+var 0
+in f x0^3 + x0 + 1
+end
+
+case factor_mod_p.random.p7.d10
+op factor_mod_p
+ring GF 7
+var 0
+in f x0^10 + 4*x0^8 + 5*x0^7 + x0^6 + 5*x0^4 + 4*x0^3 + 5*x0 + 4
+end
+
+case factor_mod_p.random.p101.d12
+op factor_mod_p
+ring GF 101
+var 0
+in f x0^12 + 46*x0^11 + 98*x0^10 + 32*x0^9 + 62*x0^8 + 48*x0^7 + 26*x0^6 + 21*x0^5 + 87*x0^4 + 80*x0^3 + 21*x0^2 + 31*x0 + 86
+end
+
+case factor_mod_p.random.p65521.d9
+op factor_mod_p
+ring GF 65521
+var 0
+in f x0^9 + 24116*x0^8 + 29466*x0^7 + 685*x0^6 + 12641*x0^5 + 26414*x0^4 + 64030*x0^3 + 37690*x0^2 + 35587*x0 + 10209
+end
+
+case factor_mod_p.random.p4611686018427387847.d6
+op factor_mod_p
+ring GF 4611686018427387847
+var 0
+in f x0^6 + 1664886789984176437*x0^5 + 279696347696772736*x0^4 + 1089551727739670946*x0^3 + 715417428140438513*x0^2 + 926778292306767035*x0 + 3571430148380305334
+end
+
+case factor_integer.x4_plus_1
+op factor_integer
+ring ZZ
+var 0
+in f x0^4 + 1
+end
+
+case factor_integer.x12_minus_1
+op factor_integer
+ring ZZ
+var 0
+in f x0^12 - 1
+end
+
+case factor_integer.x30_minus_1
+op factor_integer
+ring ZZ
+var 0
+in f x0^30 - 1
+end
+
+case factor_integer.x105_minus_1
+op factor_integer
+ring ZZ
+var 0
+in f x0^105 - 1
+end
+
+case factor_integer.swinnerton_dyer_2
+op factor_integer
+ring ZZ
+var 0
+in f x0^4 - 10*x0^2 + 1
+end
+
+case factor_integer.swinnerton_dyer_3
+op factor_integer
+ring ZZ
+var 0
+in f x0^8 - 40*x0^6 + 352*x0^4 - 960*x0^2 + 576
+end
+
+case factor_integer.swinnerton_dyer_4
+op factor_integer
+ring ZZ
+var 0
+in f x0^16 - 136*x0^14 + 6476*x0^12 - 141912*x0^10 + 1513334*x0^8 - 7453176*x0^6 + 13950764*x0^4 - 5596840*x0^2 + 46225
+end
+
+case factor_integer.wilkinson_10
+op factor_integer
+ring ZZ
+var 0
+in f x0^10 - 55*x0^9 + 1320*x0^8 - 18150*x0^7 + 157773*x0^6 - 902055*x0^5 + 3416930*x0^4 - 8409500*x0^3 + 12753576*x0^2 - 10628640*x0 + 3628800
+end
+
+case factor_integer.repeated
+op factor_integer
+ring ZZ
+var 0
+in f 3*x0^9 - 11*x0^8 + 17*x0^7 - 29*x0^6 + 33*x0^5 - 21*x0^4 + 27*x0^3 + x0^2 + 8*x0 + 4
+end
+
+case factor_integer.large_coefficients
+op factor_integer
+ring ZZ
+var 0
+in f 100000000000000000000*x0^6 + x0^5 + 118059162071741130342400000000000000000000*x0^4 - 99999999999998819408379282588696576*x0^3 - 1000000000000000*x0^2 - 118059162071741130342400000000000000000000000000000000000*x0 - 1180591620717411303424000000000000000
+end
+
+case factor_integer.content_and_sign
+op factor_integer
+ring ZZ
+var 0
+in f -2*x0^2 + 2
+end
+
+case factor_integer.content
+op factor_integer
+ring ZZ
+var 0
+in f 6*x0^2 - 6
+end
+
+case factor_integer.linear
+op factor_integer
+ring ZZ
+var 0
+in f 4*x0 - 6
+end
+
+case factor.x4_plus_1
+op factor
+ring QQ
+var 0
+in f x0^4 + 1
+end
+
+case factor.x12_minus_1
+op factor
+ring QQ
+var 0
+in f x0^12 - 1
+end
+
+case factor.x30_minus_1
+op factor
+ring QQ
+var 0
+in f x0^30 - 1
+end
+
+case factor.rational_coefficients
+op factor
+ring QQ
+var 0
+in f 1/4*x0^2 - 1/9
+end
+
+case factor.negative_rational_unit
+op factor
+ring QQ
+var 0
+in f -3/2*x0^4 + x0^3 - 5/3*x0^2 + x0 - 1/6
+end
+
+case factor_integer.random_planted.1
+op factor_integer
+ring ZZ
+var 0
+in f -2200*x0^12 + 1000*x0^11 + 1200*x0^10 - 1585*x0^9 - 13440*x0^8 - 2440*x0^7 + 4418*x0^6 + 13579*x0^5 - 7237*x0^4 - 14366*x0^3 - 6764*x0^2 + 4110*x0 + 3300
+end
+
+case factor_integer.random_planted.2
+op factor_integer
+ring ZZ
+var 0
+in f -4500*x0^12 + 10725*x0^11 - 3230*x0^10 - 7466*x0^9 + 3413*x0^8 + 12680*x0^7 - 7141*x0^6 - 2302*x0^5 - 19*x0^4 - 873*x0^3 + 1809*x0^2 + 1048*x0 + 80
+end
+
+case factor_integer.random_planted.3
+op factor_integer
+ring ZZ
+var 0
+in f 570*x0^10 - 2158*x0^9 - 614*x0^8 + 7321*x0^7 - 1255*x0^6 - 6225*x0^5 - 692*x0^4 + 785*x0^3 + 1680*x0^2 + 354*x0 - 459
+end
+
+case groebner.alan_cas.single
+op groebner
+ring QQ
+order lex 0
+in generator x0^2 - 1
+end
+
+case groebner.alan_cas.already_basis
+op groebner
+ring QQ
+order lex 0 1
+in generator x0
+in generator x1
+end
+
+case groebner.alan_cas.circle_line
+op groebner
+ring QQ
+order lex 0 1
+in generator x0^2 + x1^2 - 1
+in generator x0 - x1
+end
+
+case groebner.alan_cas.katsura_2
+op groebner
+ring QQ
+order lex 0 1 2
+in generator x0 + 2*x1 + 2*x2 - 1
+in generator x0^2 - x0 + 2*x1^2 + 2*x2^2
+in generator 2*x0*x1 + 2*x1*x2 - x1
+end
+
+case groebner.alan_cas.elimination
+op groebner
+ring QQ
+order lex 0 1
+in generator x0 + x1 - 1
+in generator x0 - x1
+end
+
+case groebner.alan_cas.zero_generator
+op groebner
+ring QQ
+order lex 0 1
+in generator 0
+end
+
+case groebner.alan_cas.empty_input
+op groebner
+ring QQ
+order lex 0 1
+end
+
+case groebner.circle_line.reversed_variables
+op groebner
+ring QQ
+order lex 1 0
+in generator x1^2 + x0^2 - 1
+in generator -x1 + x0
+end
+
+case groebner.circle_line.grlex
+op groebner
+ring QQ
+order grlex 0 1
+in generator x0^2 + x1^2 - 1
+in generator x0*x1 - 1
+end
+
+case groebner.unit_ideal
+op groebner
+ring QQ
+order lex 0 1
+in generator x0*x1 - 1
+in generator x0
+end
+
+case groebner.twisted_cubic
+op groebner
+ring QQ
+order grevlex 0 1 2
+in generator -x0^2 + x1
+in generator -x0^3 + x2
+end
+
+case groebner.twisted_cubic.lex_reversed
+op groebner
+ring QQ
+order lex 2 1 0
+in generator x1 - x0^2
+in generator x2 - x0^3
+end
+
+case groebner.rational_coefficients
+op groebner
+ring QQ
+order grevlex 0 1
+in generator 1/2*x0^2 - 1/3*x1
+in generator x0*x1 - 3/4
+end
+
+case groebner.katsura_3.lex
+op groebner
+ring QQ
+order lex 0 1 2 3
+in generator x0 + 2*x1 + 2*x2 + 2*x3 - 1
+in generator x0^2 - x0 + 2*x1^2 + 2*x2^2 + 2*x3^2
+in generator 2*x0*x1 + 2*x1*x2 - x1 + 2*x2*x3
+in generator 2*x0*x2 + x1^2 + 2*x1*x3 - x2
+end
+
+case groebner.katsura_3.grlex
+op groebner
+ring QQ
+order grlex 0 1 2 3
+in generator x0 + 2*x1 + 2*x2 + 2*x3 - 1
+in generator x0^2 + 2*x1^2 + 2*x2^2 + 2*x3^2 - x0
+in generator 2*x0*x1 + 2*x1*x2 + 2*x2*x3 - x1
+in generator 2*x0*x2 + x1^2 + 2*x1*x3 - x2
+end
+
+case groebner.katsura_3.grevlex
+op groebner
+ring QQ
+order grevlex 0 1 2 3
+in generator x0 + 2*x1 + 2*x2 + 2*x3 - 1
+in generator x0^2 + 2*x1^2 + 2*x2^2 + 2*x3^2 - x0
+in generator 2*x0*x1 + 2*x1*x2 + 2*x2*x3 - x1
+in generator x1^2 + 2*x0*x2 + 2*x1*x3 - x2
+end
+
+case groebner.katsura_4.grevlex
+op groebner
+ring QQ
+order grevlex 0 1 2 3 4
+in generator x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4 - 1
+in generator x0^2 + 2*x1^2 + 2*x2^2 + 2*x3^2 + 2*x4^2 - x0
+in generator 2*x0*x1 + 2*x1*x2 + 2*x2*x3 + 2*x3*x4 - x1
+in generator x1^2 + 2*x0*x2 + 2*x1*x3 + 2*x2*x4 - x2
+in generator 2*x1*x2 + 2*x0*x3 + 2*x1*x4 - x3
+end
+
+case groebner.katsura_4.lex
+op groebner
+ring QQ
+order lex 0 1 2 3 4
+in generator x0 + 2*x1 + 2*x2 + 2*x3 + 2*x4 - 1
+in generator x0^2 - x0 + 2*x1^2 + 2*x2^2 + 2*x3^2 + 2*x4^2
+in generator 2*x0*x1 + 2*x1*x2 - x1 + 2*x2*x3 + 2*x3*x4
+in generator 2*x0*x2 + x1^2 + 2*x1*x3 + 2*x2*x4 - x2
+in generator 2*x0*x3 + 2*x1*x2 + 2*x1*x4 - x3
+end
+
+case groebner.cyclic_4.grevlex
+op groebner
+ring QQ
+order grevlex 0 1 2 3
+in generator x0 + x1 + x2 + x3
+in generator x0*x1 + x1*x2 + x0*x3 + x2*x3
+in generator x0*x1*x2 + x0*x1*x3 + x0*x2*x3 + x1*x2*x3
+in generator x0*x1*x2*x3 - 1
+end
+
+case groebner.cyclic_4.lex
+op groebner
+ring QQ
+order lex 0 1 2 3
+in generator x0 + x1 + x2 + x3
+in generator x0*x1 + x0*x3 + x1*x2 + x2*x3
+in generator x0*x1*x2 + x0*x1*x3 + x0*x2*x3 + x1*x2*x3
+in generator x0*x1*x2*x3 - 1
+end
+
+case groebner.cyclic_5.grevlex
+op groebner
+ring QQ
+order grevlex 0 1 2 3 4
+in generator x0 + x1 + x2 + x3 + x4
+in generator x0*x1 + x1*x2 + x2*x3 + x0*x4 + x3*x4
+in generator x0*x1*x2 + x1*x2*x3 + x0*x1*x4 + x0*x3*x4 + x2*x3*x4
+in generator x0*x1*x2*x3 + x0*x1*x2*x4 + x0*x1*x3*x4 + x0*x2*x3*x4 + x1*x2*x3*x4
+in generator x0*x1*x2*x3*x4 - 1
+end
+
+case groebner.cyclic_5.grevlex.p32003
+op groebner
+ring GF 32003
+order grevlex 0 1 2 3 4
+in generator x0 + x1 + x2 + x3 + x4
+in generator x0*x1 + x1*x2 + x2*x3 + x0*x4 + x3*x4
+in generator x0*x1*x2 + x1*x2*x3 + x0*x1*x4 + x0*x3*x4 + x2*x3*x4
+in generator x0*x1*x2*x3 + x0*x1*x2*x4 + x0*x1*x3*x4 + x0*x2*x3*x4 + x1*x2*x3*x4
+in generator x0*x1*x2*x3*x4 + 32002
+end
+
+case groebner.katsura_3.grevlex.first_prime
+op groebner
+ring GF 4611686018427387847
+order grevlex 0 1 2 3
+in generator x0 + 2*x1 + 2*x2 + 2*x3 + 4611686018427387846
+in generator x0^2 + 2*x1^2 + 2*x2^2 + 2*x3^2 + 4611686018427387846*x0
+in generator 2*x0*x1 + 2*x1*x2 + 2*x2*x3 + 4611686018427387846*x1
+in generator x1^2 + 2*x0*x2 + 2*x1*x3 + 4611686018427387846*x2
+end
+
+case groebner.circle_line.p7
+op groebner
+ring GF 7
+order lex 0 1
+in generator x0^2 + x1^2 + 6
+in generator x0 + 6*x1
+end
+
+case membership.katsura_2.planted
+op membership
+ring QQ
+order grevlex 0 1 2
+in generator x0 + 2*x1 + 2*x2 - 1
+in generator x0^2 + 2*x1^2 + 2*x2^2 - x0
+in generator 2*x0*x1 + 2*x1*x2 - x1
+in f x0^2*x1^2 + 2*x1^4 + 2*x1^2*x2^2 - x0*x1^2 + x0^2 - 4*x0*x1 - 10*x1*x2 - 4*x2^2 - x0 + 3*x1 + 2*x2
+end
+
+case membership.katsura_2.not_member
+op membership
+ring QQ
+order grevlex 0 1 2
+in generator x0 + 2*x1 + 2*x2 - 1
+in generator x0^2 + 2*x1^2 + 2*x2^2 - x0
+in generator 2*x0*x1 + 2*x1*x2 - x1
+in f x2
+end
+
+case membership.katsura_2.not_member_lex
+op membership
+ring QQ
+order lex 0 1 2
+in generator x0 + 2*x1 + 2*x2 - 1
+in generator x0^2 - x0 + 2*x1^2 + 2*x2^2
+in generator 2*x0*x1 + 2*x1*x2 - x1
+in f x0*x1 - x2^2
+end
+
+case membership.unit_ideal
+op membership
+ring QQ
+order lex 0 1
+in generator x0*x1 - 1
+in generator x0
+in f 1
+end
+
+case membership.circle_line.member
+op membership
+ring QQ
+order lex 0 1
+in generator x0^2 + x1^2 - 1
+in generator x0 - x1
+in f 2*x1^2 - 1
+end
+
+case membership.twisted_cubic.member
+op membership
+ring QQ
+order grevlex 0 1 2
+in generator -x0^2 + x1
+in generator -x0^3 + x2
+in f x1^3 - x2^2
+end
+
+case isolate.alan_cas.double_root
+op isolate
+ring QQ
+var 0
+in f x0^2
+end
+
+case isolate.alan_cas.quintic
+op isolate
+ring QQ
+var 0
+in f x0^5 - x0 - 1
+end
+
+case isolate.alan_cas.far_roots
+op isolate
+ring QQ
+var 0
+in f x0^2 - 2001*x0 + 1001000
+end
+
+case isolate.alan_cas.rational_roots
+op isolate
+ring QQ
+var 0
+in f 2*x0^2 - 5*x0 + 2
+end
+
+case isolate.cube_root_2
+op isolate
+ring QQ
+var 0
+in f x0^3 - 2
+end
+
+case isolate.no_real_roots
+op isolate
+ring QQ
+var 0
+in f x0^4 + 1
+end
+
+case isolate.wilkinson_10
+op isolate
+ring QQ
+var 0
+in f x0^10 - 55*x0^9 + 1320*x0^8 - 18150*x0^7 + 157773*x0^6 - 902055*x0^5 + 3416930*x0^4 - 8409500*x0^3 + 12753576*x0^2 - 10628640*x0 + 3628800
+end
+
+case isolate.wilkinson_20
+op isolate
+ring QQ
+var 0
+in f x0^20 - 210*x0^19 + 20615*x0^18 - 1256850*x0^17 + 53327946*x0^16 - 1672280820*x0^15 + 40171771630*x0^14 - 756111184500*x0^13 + 11310276995381*x0^12 - 135585182899530*x0^11 + 1307535010540395*x0^10 - 10142299865511450*x0^9 + 63030812099294896*x0^8 - 311333643161390640*x0^7 + 1206647803780373360*x0^6 - 3599979517947607200*x0^5 + 8037811822645051776*x0^4 - 12870931245150988800*x0^3 + 13803759753640704000*x0^2 - 8752948036761600000*x0 + 2432902008176640000
+end
+
+case isolate.chebyshev_12
+op isolate
+ring QQ
+var 0
+in f 2048*x0^12 - 6144*x0^10 + 6912*x0^8 - 3584*x0^6 + 840*x0^4 - 72*x0^2 + 1
+end
+
+case isolate.mignotte_7_50
+op isolate
+ring QQ
+var 0
+in f x0^7 - 5000*x0^2 + 200*x0 - 2
+end
+
+case isolate.repeated
+op isolate
+ring QQ
+var 0
+in f x0^9 + x0^8 - 11*x0^7 - 3*x0^6 + 42*x0^5 - 6*x0^4 - 68*x0^3 + 28*x0^2 + 40*x0 - 24
+end
+
+case isolate.swinnerton_dyer_3
+op isolate
+ring QQ
+var 0
+in f x0^8 - 40*x0^6 + 352*x0^4 - 960*x0^2 + 576
+end
+
+case isolate.rational_coefficients
+op isolate
+ring QQ
+var 0
+in f x0^3 - 1/3*x0^2 - 1/2*x0 + 1/6
+end
+
+case isolate.zero_root
+op isolate
+ring QQ
+var 0
+in f x0^3 - 3*x0
+end
+
+case sturm.sympy_docstring
+op sturm
+ring QQ
+var 0
+in f x0^3 - 2*x0^2 + x0 - 3
+end
+
+case sturm.quintic
+op sturm
+ring QQ
+var 0
+in f x0^5 - x0 - 1
+end
+
+case sturm.not_squarefree
+op sturm
+ring QQ
+var 0
+in f x0^3 - 3*x0 + 2
+end
+
+case sturm.cube_root_2
+op sturm
+ring QQ
+var 0
+in f x0^3 - 2
+end
+
+case count_roots.wilkinson_10.middle
+op count_roots
+ring QQ
+var 0
+in f x0^10 - 55*x0^9 + 1320*x0^8 - 18150*x0^7 + 157773*x0^6 - 902055*x0^5 + 3416930*x0^4 - 8409500*x0^3 + 12753576*x0^2 - 10628640*x0 + 3628800
+in a 7/2
+in b 15/2
+end
+
+case count_roots.chebyshev_12.positive
+op count_roots
+ring QQ
+var 0
+in f 2048*x0^12 - 6144*x0^10 + 6912*x0^8 - 3584*x0^6 + 840*x0^4 - 72*x0^2 + 1
+in a 0
+in b 11/10
+end
+
+case count_roots.repeated.all
+op count_roots
+ring QQ
+var 0
+in f x0^9 + x0^8 - 11*x0^7 - 3*x0^6 + 42*x0^5 - 6*x0^4 - 68*x0^3 + 28*x0^2 + 40*x0 - 24
+in a -4
+in b 4
+end
+
+case count_roots.mignotte.close_pair
+op count_roots
+ring QQ
+var 0
+in f x0^7 - 5000*x0^2 + 200*x0 - 2
+in a 19/1000
+in b 21/1000
+end
+
+case count_roots.no_real_roots
+op count_roots
+ring QQ
+var 0
+in f x0^4 + 1
+in a -10
+in b 10
+end
+
+case count_roots.cube_root_2.miss
+op count_roots
+ring QQ
+var 0
+in f x0^3 - 2
+in a -5
+in b 1
+end

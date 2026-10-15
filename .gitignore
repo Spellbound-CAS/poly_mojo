@@ -1,0 +1,14 @@
+# pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# build outputs, the documentation site and test reports
+build/
+.cache/
+*.mojopkg
+*.mojoc
+
+# editor and OS files
+.DS_Store
+._*
+__pycache__/

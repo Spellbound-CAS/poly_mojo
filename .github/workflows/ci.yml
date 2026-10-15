@@ -1,0 +1,27 @@
+name: ci
+
+# Automatic runs are off while one person reviews and pushes to main;
+# start a run by hand from the Actions tab.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: prefix-dev/setup-pixi@d3f436a425481402e6a95a1d1fc10331c708cd9e # v0.10.2
+        with:
+          pixi-version: v0.81.0
+          cache: true
+          locked: true
+      - name: Layering
+        run: pixi run layering
+      - name: Build the packages
+        run: pixi run build
+      - name: Library tests
+        run: pixi run test-library
+      - name: Compiler-rejection tests
+        run: pixi run test-rejections
+      - name: Documentation examples
+        run: pixi run docs-test --output .cache/docs-examples --jobs 4

@@ -1,0 +1,145 @@
+site_name: Poly Mojo
+site_description: Exact and arbitrary-precision polynomial algebra in Mojo, with independently checkable certificates.
+site_url: https://spellbound-mojo.github.io/polynomials/
+repo_url: https://github.com/Spellbound-Mojo/polynomials
+docs_dir: docs/content
+site_dir: .cache/docs-site
+use_directory_urls: true
+strict: true
+theme:
+  name: null
+  custom_dir: docs/theme
+  static_templates: [404.html]
+plugins:
+  - search:
+      lang: en
+      min_search_length: 2
+hooks:
+  - docs/hooks.py
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - def_list
+  - fenced_code
+  - tables
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+  - codehilite:
+      guess_lang: false
+not_in_nav: |
+  /search.md
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn
+watch:
+  - src
+  - docs/examples
+  - docs/examples.json
+nav:
+  - Welcome: index.md
+  - Get started:
+      - Installation: start/installation.md
+      - Your first polynomial: tutorial/first-polynomial.md
+      - Choose a coefficient domain: guides/domains.md
+      - Example gallery: examples/index.md
+  - Tutorials:
+      - Polynomial arrays: tutorial/arrays.md
+      - Exact array algebra: tutorial/array-exact.md
+      - Check exact algebra results: tutorial/array-checked.md
+      - Specialized CAD workflows: tutorial/array-cad-workflows.md
+      - Roots from coefficient arrays: tutorial/array-roots.md
+      - Algebraic coefficients: tutorial/algebraic-coefficients.md
+      - Equations and inequalities: tutorial/array-systems.md
+      - Formal series from arrays: tutorial/array-series.md
+      - Basis coefficients and conversion: tutorial/array-bases.md
+      - Rational functions from arrays: tutorial/array-rational.md
+      - Numerical coefficient arrays: tutorial/array-numeric.md
+      - Certified array evaluation: tutorial/array-certified.md
+      - Batch calculations: tutorial/array-batching.md
+      - Save and restore values: tutorial/array-serialization.md
+      - Named expression input: tutorial/named-polynomials.md
+      - Dense and sparse representations: tutorial/representations.md
+      - Division and gcds: tutorial/division.md
+      - Calculus and transformations: tutorial/calculus.md
+      - Interpolation: tutorial/interpolation.md
+      - Alternative bases: tutorial/bases.md
+      - Formal series: tutorial/series.md
+      - Rational functions: tutorial/rational-functions.md
+      - Factorization: tutorial/factorization.md
+      - Gröbner bases and membership: tutorial/groebner.md
+      - Exact real roots: tutorial/real-roots.md
+      - Real algebraic numbers: tutorial/algebraic-numbers.md
+      - CAD and inequalities: tutorial/cad.md
+      - Numerical evaluation: tutorial/numerical.md
+      - Numerical root covers: tutorial/numerical-roots.md
+  - Guides:
+      - Errors and work limits: guides/errors.md
+      - Certificate claims: guides/certificates.md
+      - Interchange and streaming: guides/interchange.md
+      - Support and limitations: guides/status.md
+  - API reference:
+      - Find an operation: reference/index.md
+      - Array API: reference/array-api.md
+      - Checked exact results: reference/array-exact-results.md
+      - Numerical coefficient arrays: reference/array-numeric.md
+      - Certified array evaluation: reference/array-evaluation.md
+      - Batch maps and broadcasting: reference/array-batch.md
+      - Value serialization: reference/array-io.md
+      - Dense arrays: reference/array-dense.md
+      - Sparse arrays: reference/array-sparse.md
+      - Root results and refinement: reference/array-roots.md
+      - Exact algebraic values: reference/array-algebraic.md
+      - CAD and sign constraints: reference/array-cad.md
+      - Formal series arrays: reference/array-series.md
+      - Alternative basis arrays: reference/array-basis.md
+      - Rational functions from arrays: reference/array-rational.md
+      - Representations and arithmetic: reference/p1.md
+      - Division, gcds, and resultants: reference/p2.md
+      - Univariate factorization: reference/p3.md
+      - Gröbner bases: reference/p4.md
+      - Exact real roots: reference/p5.md
+      - Polynomial toolkit: reference/toolkit.md
+      - Numerical polynomials: spec/numerical.md
+      - Real algebraic numbers: reference/algebraic.md
+      - Multivariate factorization: reference/advanced-factorization.md
+      - CAD: reference/cad.md
+      - Compatibility contract: reference/contract-p.md
+  - Architecture:
+      - Overview: architecture/overview.md
+      - Representations and shared kernels: architecture/representations.md
+      - Exact algorithms: architecture/algorithms.md
+      - Numerical certification: architecture/numerical.md
+      - Streaming and memory: architecture/streaming.md
+  - Mathematics:
+      - Overview: theory/index.md
+      - Polynomial rings: theory/rings.md
+      - Division: theory/division.md
+      - Greatest common divisors: theory/gcd.md
+      - Resultants: theory/resultants.md
+      - Rational functions: theory/rational-functions.md
+      - Factorization: theory/factorization.md
+      - Gröbner bases: theory/groebner.md
+      - Real roots: theory/roots.md
+      - Algebraic numbers and CAD: theory/extensions.md
+      - Numerical guarantees: theory/numerical.md
+      - References: theory/references.md
+  - Maintaining:
+      - Maintainer guide: contributing/handoff.md
+      - Writing documentation: contributing/documentation.md
+      - Ground rules: spec/ground-rules.md
+      - Implementation contracts: spec/index.md
+      - Representation contracts: spec/p1-arithmetic.md
+      - Division and elimination contracts: spec/p2-gcd.md
+      - Factorization contracts: spec/p3-factorization.md
+      - Gröbner contracts: spec/p4-groebner.md
+      - Real-root contracts: spec/p5-roots.md
+      - Validation and compatibility: spec/acceptance.md
+      - Source provenance and fixtures: contributing/reference.md
