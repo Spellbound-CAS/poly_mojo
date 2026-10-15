@@ -1,7 +1,7 @@
 site_name: Poly Mojo
 site_description: Exact and arbitrary-precision polynomial algebra in Mojo, with independently checkable certificates.
-site_url: https://spellbound-mojo.github.io/polynomials/
-repo_url: https://github.com/Spellbound-Mojo/polynomials
+site_url: https://spellbound-mojo.github.io/poly_mojo/
+repo_url: https://github.com/Spellbound-Mojo/poly_mojo
 docs_dir: docs/content
 site_dir: .cache/docs-site
 use_directory_urls: true

@@ -56,8 +56,8 @@ Install [Pixi](https://pixi.sh/), clone the repository, and build the
 packages:
 
 ```sh
-git clone https://github.com/Spellbound-Mojo/polynomials.git
-cd polynomials
+git clone https://github.com/Spellbound-Mojo/poly_mojo.git
+cd poly_mojo
 pixi install --locked
 pixi run --locked build
 pixi run --locked mojo run -I build docs/examples/tutorial_first.mojo

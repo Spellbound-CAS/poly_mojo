@@ -20,7 +20,7 @@ limits bound calculations.
 ![Mojo 1.1](https://img.shields.io/badge/Mojo-1.1-orange)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 
-**Documentation:** https://spellbound-mojo.github.io/polynomials/
+**Documentation:** https://spellbound-mojo.github.io/poly_mojo/
 
 ## What you can do
 
@@ -95,8 +95,8 @@ pixi add poly_mojo
 ### Build from a checkout
 
 ```sh
-git clone https://github.com/Spellbound-Mojo/polynomials.git
-cd polynomials
+git clone https://github.com/Spellbound-Mojo/poly_mojo.git
+cd poly_mojo
 pixi install --locked
 pixi run --locked build
 pixi run --locked mojo run -I build docs/examples/tutorial_first.mojo
@@ -202,7 +202,7 @@ connects the public types to the algorithms and independent checkers.
 
 ## Documentation
 
-Read the [documentation site](https://spellbound-mojo.github.io/polynomials/),
+Read the [documentation site](https://spellbound-mojo.github.io/poly_mojo/),
 browse the [tutorials and examples](docs/content/examples/index.md), or run the
 site locally from a checkout:
 

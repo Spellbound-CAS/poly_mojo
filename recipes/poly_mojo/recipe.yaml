@@ -8,7 +8,7 @@ package:
   version: ${{ version }}
 
 source:
-  - git: https://github.com/Spellbound-Mojo/polynomials.git
+  - git: https://github.com/Spellbound-Mojo/poly_mojo.git
     tag: v${{ version }}
 
 build:
@@ -49,9 +49,9 @@ tests:
         - docs/examples/tutorial_numerical.mojo
 
 about:
-  homepage: https://spellbound-mojo.github.io/polynomials/
-  repository: https://github.com/Spellbound-Mojo/polynomials
-  documentation: https://spellbound-mojo.github.io/polynomials/
+  homepage: https://spellbound-mojo.github.io/poly_mojo/
+  repository: https://github.com/Spellbound-Mojo/poly_mojo
+  documentation: https://spellbound-mojo.github.io/poly_mojo/
   license: Apache-2.0
   license_file:
     - LICENSE

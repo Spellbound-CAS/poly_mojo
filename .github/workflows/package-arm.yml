@@ -4,7 +4,7 @@
 #
 # Runs by hand. The default builds from the checkout; `source: tag` builds from
 # the release tag the recipe names, which is what the channel builds:
-#   gh workflow run package-arm.yml -R Spellbound-Mojo/polynomials --ref main -f source=tag
+#   gh workflow run package-arm.yml -R Spellbound-Mojo/poly_mojo --ref main -f source=tag
 #
 # The recipe's project source must be a `git:` entry followed by a `tag:` line.
 # Don't write a literal ${{ version }} in a run block: GitHub evaluates ${{ }}
