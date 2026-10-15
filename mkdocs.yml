@@ -56,7 +56,8 @@ nav:
       - Check exact algebra results: tutorial/array-checked.md
       - Roots: tutorial/array-roots.md
       - Algebraic coefficients: tutorial/algebraic-coefficients.md
-      - Equations and inequalities: tutorial/array-systems.md
+      - Gröbner bases and membership: tutorial/array-systems.md
+      - Inequalities and CAD: tutorial/array-cad.md
       - Specialized CAD workflows: tutorial/array-cad-workflows.md
       - Formal series: tutorial/array-series.md
       - Alternative bases: tutorial/array-bases.md

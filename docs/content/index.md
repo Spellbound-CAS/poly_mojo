@@ -44,7 +44,7 @@ and optional work limits through a complete, checked program.
 | Save and restore coefficients | [Canonical serialization](tutorial/array-serialization.md) |
 | Find and refine validated real or complex roots | [Numerical root covers](tutorial/array-roots.md#choose-the-numerical-claim-you-need) |
 | Reduce polynomial systems | [Gröbner bases and membership](tutorial/array-systems.md) |
-| Compute with algebraic values or decompose real space | [Algebraic coefficients](tutorial/algebraic-coefficients.md), [CAD](tutorial/array-systems.md#state-real-sign-constraints-directly) |
+| Compute with algebraic values or decompose real space | [Algebraic coefficients](tutorial/algebraic-coefficients.md), [CAD](tutorial/array-cad.md) |
 
 ## Understand the result
 

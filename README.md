@@ -48,7 +48,7 @@ limits bound calculations.
 - **Reduce polynomial systems with Gröbner bases.** Compute reduced bases over
   rationals, finite fields, or exact Gaussian rationals. Ideal membership
   returns an identity you can check independently of the basis computation.
-  See [equations and inequalities](docs/content/tutorial/array-systems.md).
+  See [Gröbner bases and membership](docs/content/tutorial/array-systems.md).
 - **Calculate with exact algebraic coefficients.** Use selected roots directly
   in dense or sparse polynomials, or combine real and imaginary algebraic parts
   for exact complex arithmetic. Domains and mixed-type promotion are inferred;
@@ -146,8 +146,8 @@ real algebraic coefficients. Root and CAD stream
 functions feed independent checkers without collecting the full witness history.
 
 See [root workflows](docs/content/tutorial/array-roots.md) and
-[equations and inequalities](docs/content/tutorial/array-systems.md) for complete
-examples using coefficient iterables and inferred domains.
+the [Gröbner](docs/content/tutorial/array-systems.md) and [CAD](docs/content/tutorial/array-cad.md)
+tutorials for complete examples using coefficient iterables and inferred domains.
 
 ## Series, bases, and rational functions
 

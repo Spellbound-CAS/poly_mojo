@@ -147,7 +147,7 @@ interpolation, and elimination. The `poly` namespaces
 also expose root finding, Gröbner bases, CAD, and their certificate checks.
 
 Continue with [root finding and algebraic values](array-roots.md), or use
-[sparse equations and inequalities](array-systems.md) for Gröbner bases and CAD.
+[Gröbner bases](array-systems.md) and [CAD](array-cad.md) for polynomial systems.
 
 Use [formal series](array-series.md) for truncated calculations,
 [basis arrays](array-bases.md) for Newton, Chebyshev, or Bernstein coefficients,

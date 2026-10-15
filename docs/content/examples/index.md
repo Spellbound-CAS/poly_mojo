@@ -16,7 +16,8 @@ tutorial, then use the later examples to see how operations fit together.
 | `array_algebraic_points.mojo`, `array_root_diagnostics.mojo`, `array_extension_algebraic_roots.mojo` | [Evaluate at exact roots and inspect candidates](../tutorial/array-roots.md#evaluate-and-specialize-at-exact-roots) |
 | `array_workflow_specialization.mojo`, `array_workflow_covers.mojo`, `array_workflow_root_stream.mojo` | [Algebraic coefficients in root searches](../tutorial/array-roots.md#diagnose-an-algebraic-polynomial-numerically) |
 | `array_algebraic_coefficients.mojo`, `array_algebraic_factor.mojo`, `array_algebraic_multivariate_factor.mojo` | [Algebraic coefficients](../tutorial/algebraic-coefficients.md) |
-| `array_solver_ideals.mojo`, `array_solver_cad.mojo` | [Equations and inequalities](../tutorial/array-systems.md) |
+| `array_solver_ideals.mojo` | [Gröbner bases and membership](../tutorial/array-systems.md) |
+| `array_solver_cad.mojo` | [Inequalities and CAD](../tutorial/array-cad.md) |
 | `array_parity_cad.mojo`, `array_fixed_cad.mojo`, `array_algebraic_cad.mojo` | [Specialized CAD workflows](../tutorial/array-cad-workflows.md) |
 | `array_toolkit_series.mojo` | [Formal series](../tutorial/array-series.md) |
 | `array_toolkit_basis.mojo` | [Alternative bases](../tutorial/array-bases.md) |

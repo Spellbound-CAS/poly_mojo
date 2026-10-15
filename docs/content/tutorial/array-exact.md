@@ -161,7 +161,8 @@ the smaller input degree in that variable; zero entries retain their indices.
 
 You can retain and check exact algebra evidence directly through the
 [checked array operations](array-checked.md), including `factor_checked`.
-Roots, Gröbner bases, and CAD also have direct [array workflows](array-systems.md).
+[Roots](array-roots.md), [Gröbner bases](array-systems.md), and [CAD](array-cad.md) also have
+direct array workflows.
 
 Every operation above accepts `max_steps=` or an explicit shared `Budget`.
 See the [dense](../reference/array-dense.md) and

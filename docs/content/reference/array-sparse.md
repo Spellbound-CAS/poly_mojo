@@ -110,7 +110,8 @@ for a complete example.
 ## Roots and polynomial systems
 
 See [root workflows](../tutorial/array-roots.md) and
-[equations and inequalities](../tutorial/array-systems.md) for complete examples.
+the [Gröbner](../tutorial/array-systems.md) and [CAD](../tutorial/array-cad.md)
+tutorials for complete examples.
 
 <!-- api: src/poly/sparse.mojo real_roots -->
 
