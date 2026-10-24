@@ -1,6 +1,6 @@
-"""Refine a checked real-root cover to a tighter absolute width."""
+"""Refine a checked real-root result to a tighter absolute width."""
 from std.testing import assert_equal, assert_true
-from polynomials import Budget, QQ, NoContext, PolynomialRing, DensePoly, NumericOptions, real_roots_exact, refine_real_roots_exact, check_real_roots_exact
+from polynomials import Budget, QQ, NoContext, PolynomialRing, DensePoly, NumericOptions, real_roots_exact, refine_real_roots_exact, check_real_roots_exact, descartes_intervals
 
 
 def main() raises:
@@ -15,9 +15,7 @@ def main() raises:
     assert_true(refined.complete)
     assert_true(refined.accurate)
     assert_true(refined.isolated)
-    var count = 0
-    for cell in refined.cells:
-        count += cell.count
+    var count = len(descartes_intervals(refined.certificate, work))
     assert_equal(count, 2)
     print("Distinct real roots:", count)
     print("Complete cover:", refined.complete)

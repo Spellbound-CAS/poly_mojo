@@ -71,7 +71,8 @@ excludes roots. Strict inclusion N inside I establishes existence and uniqueness
 for each fixed polynomial the endpoint values have opposite signs, using the
 mean value theorem between m and each endpoint and the same strict inequalities.
 Root coverage additionally requires that no subdivision boundary root is lost.
-Exact inputs can instead use the existing Sturm and squarefree certificates.
+Exact inputs instead use Descartes certificates on the squarefree part (see the
+[real roots reference](../reference/p5.md#descartes-certificates)).
 
 ## Complex root counts
 
@@ -89,9 +90,8 @@ midpoint using rational interval operations. The translated coefficient family
 contains every translated original polynomial; subsequent interval evaluation
 therefore preserves the homotopy premise despite any lost correlations.
 
-The argument principle, also used by the approved archived complex-isolation
-reference, identifies this winding number with the number of roots inside the
-domain rectangle, counting multiplicity. The polygon's winding number is
+The argument principle identifies this winding number with the number of roots
+inside the domain rectangle, counting multiplicity. The polygon's winding number is
 computed using exact rational oriented crossings and a half-open convention
 at vertices. The checker must verify the entire closed boundary, image bounds,
 zero exclusion, representative membership and winding count.

@@ -8,7 +8,7 @@ def main() raises:
     var p = [((1, 0), 1), ((0, 1), -1)]
     var original = cad.decompose([p.copy()], fixed=[(1, 2)])
     var budget = Budget()
-    assert_false(check_cad(original._data[].inputs, original.evidence(), budget))
+    assert_false(check_cad(original._data[].inputs, original.evidence().legacy_decomposition().value(), budget))
     var wrong_value = cad.decompose([p.copy()], fixed=[(1, 2)])
     wrong_value._data[].fixed[0][1] = algebraic.asreal(3)
     assert_false(cad.check(wrong_value))
@@ -16,7 +16,7 @@ def main() raises:
     wrong_axis._data[].fixed[0][0] = 0
     assert_false(cad.check(wrong_axis))
     var missing = cad.decompose([p.copy()], fixed=[(1, 2)])
-    _ = missing._data[].proof.cells.pop()
+    _ = missing._data[].proof._data[].legacy.value().cells.pop()
     assert_false(cad.check(missing))
     var unbound = cad.decompose([p.copy()], fixed=[(1, 2)])
     unbound._data[].fixed.clear()

@@ -6,12 +6,21 @@ from .coefficient_buffer import _view
 from .errors import Budget, PolyError, PolyErrorKind, _allocation, _charge_size
 from .coefficients import CoefficientRing, CoefficientField, _pow
 from ._coefficient_ops import _quotient, _exact
-from .dense import DensePoly, _slice, _trim
+from .dense import DensePoly, _slice, _trim, _word_residues
 from .sparse import SparsePoly, Term
 from .monomial import Monomial, MonomialOrder
 from .certificates import DivisionResult, ListDivision
+from ._packed_division import _packed_divide as _heap_divide
 from ._sparse_ops import _subtract_multiple, _from_descending
 from ._reduction_stream import _ReductionStream
+from ._packed_products import _packed_divide
+from ._ntt import _ntt_divide_exact
+from ._nmod import _Field, _field, _mulm, _from
+from ._field_division import _field_divmod, _zz_exact
+
+comptime _WORD_DIVISION = 256
+"""Divisor length below which exact GF(p) division runs on word residues instead of transforms."""
+from .coefficients import ZZ, ModInt, _submul
 
 
 def _dense_divide[C: CoefficientRing](f: DensePoly[C], g: DensePoly[C], pseudo: Bool, mut budget: Budget, quotient: Bool = True) raises PolyError -> DivisionResult[C]:
@@ -46,7 +55,10 @@ def _dense_divide[C: CoefficientRing](f: DensePoly[C], g: DensePoly[C], pseudo: 
             q[shift] = q[shift].add(factor, budget)
         for i in range(len(g.coefficients)):
             budget.charge(1)
-            r[shift + i] = r[shift + i].sub(factor.mul(g.coefficients[i], budget), budget)
+            comptime if C == ZZ:
+                _submul(rebind[ZZ](r[shift + i]), rebind[ZZ](factor), rebind[ZZ](g.coefficients[i]), budget)
+            else:
+                r[shift + i] = r[shift + i].sub(factor.mul(g.coefficients[i], budget), budget)
         _trim(r, budget)
         remaining -= 1
     if pseudo and remaining:
@@ -59,6 +71,37 @@ def _dense_divide[C: CoefficientRing](f: DensePoly[C], g: DensePoly[C], pseudo: 
             r[i] = r[i].mul(multiplier, budget)
     _trim(q, budget)
     return DivisionResult[C](DensePoly[C]._from_canonical(f.variable, f.ring, q^), DensePoly[C]._from_canonical(f.variable, f.ring, r^))
+
+
+def _words(p: DensePoly[ModInt], f: _Field) -> List[UInt64]:
+    # Residues read run by run, then moved to Montgomery form in place.
+    var out = _word_residues(_view(p.coefficients))
+    for i in range(len(out)):
+        out.unsafe_get(i) = _mulm(out.unsafe_get(i), f.r2, f)
+    return out^
+
+
+def _from_words(words: List[UInt64], template: ModInt, f: _Field, mut budget: Budget) raises PolyError -> List[ModInt]:
+    _allocation[ModInt](len(words), budget)
+    var out = List[ModInt](capacity=len(words))
+    for w in words:
+        out.append(template._with_residue(_from(w, f)))
+    return out^
+
+
+def _word_divmod(f: DensePoly[ModInt], g: DensePoly[ModInt], mut budget: Budget) raises PolyError -> Optional[DivisionResult[ModInt]]:
+    """divmod over an odd prime field on Montgomery word residues, or None for p = 2."""
+    if g.is_zero() or f.is_zero():
+        return None
+    ref lead = g.coefficients[len(g.coefficients) - 1]
+    if lead.modulus % 2 == 0 or lead.modulus < 3 or lead.modulus >= UInt64(1) << 62:
+        return None
+    var field = _field(lead.modulus)
+    _allocation[UInt64](len(f.coefficients) + len(g.coefficients), budget)
+    var qr = _field_divmod(_words(f, field), _words(g, field), field, budget)
+    var q = DensePoly[ModInt]._from_canonical(f.variable, f.ring, _from_words(qr[0], lead, field, budget))
+    var r = DensePoly[ModInt]._from_canonical(f.variable, f.ring, _from_words(qr[1], lead, field, budget))
+    return DivisionResult[ModInt](q^, r^)
 
 
 def divmod[C: CoefficientField](f: DensePoly[C], g: DensePoly[C], mut budget: Budget) raises PolyError -> DivisionResult[C]:
@@ -78,6 +121,11 @@ def divmod[C: CoefficientField](f: DensePoly[C], g: DensePoly[C], mut budget: Bu
     Raises:
         PolyError: DOMAIN for invalid operands, LIMIT or CAPACITY on work limits.
     """
+    comptime if C == ModInt:
+        f._same(g)
+        var fast = _word_divmod(rebind[DensePoly[ModInt]](f), rebind[DensePoly[ModInt]](g), budget)
+        if fast:
+            return rebind_var[DivisionResult[C]](fast.take())
     return _dense_divide(f, g, False, budget)
 
 
@@ -124,6 +172,42 @@ def _division_order[C: CoefficientRing](p: SparsePoly[C], others: List[SparsePol
     return MonomialOrder(MonomialOrder.LEX, variables^, budget)
 
 
+def _divide_by_term[C: CoefficientRing](f: SparsePoly[C], g: SparsePoly[C], mut budget: Budget) raises PolyError -> Optional[SparsePoly[C]]:
+    """The exact quotient by a one-term divisor, term by term, or None.
+
+    Dividing every monomial by one monomial keeps them distinct and, monomial
+    orders being multiplicative, in order; exact quotients of nonzero
+    coefficients are nonzero, so the quotient terms are already canonical
+    except in the kernel's storage order, which is not multiplicative.
+    """
+    ref lead = g.terms[0]
+    _allocation[Term[C]](len(f.terms), budget)
+    var terms = List[Term[C]](capacity=len(f.terms))
+    comptime if C == ModInt:
+        # One inverse for every coefficient.
+        var inverse = rebind[ModInt](lead.coefficient).inverse(budget)
+        for t in f.terms:
+            budget.charge(1)
+            if not lead.monomial.divides(t.monomial, budget):
+                return None
+            terms.append(Term[C](t.monomial.div(lead.monomial, budget), rebind_var[C](rebind[ModInt](t.coefficient).mul(inverse, budget))))
+    else:
+        for t in f.terms:
+            budget.charge(1)
+            if not lead.monomial.divides(t.monomial, budget):
+                return None
+            var c = _quotient(t.coefficient, lead.coefficient, budget)
+            if not c:
+                return None
+            terms.append(Term[C](t.monomial.div(lead.monomial, budget), c.take()))
+    if f.order.kind == MonomialOrder.KERNEL:
+        # Storage order compares pair lists, which dividing can reorder.
+        return SparsePoly[C].from_terms(terms^, f.order, f.ring, budget)
+    var result = SparsePoly[C].zero(f.order, f.ring, budget)
+    result.terms = terms^
+    return result^
+
+
 def divide_exact[C: CoefficientRing](f: SparsePoly[C], g: SparsePoly[C], mut budget: Budget) raises PolyError -> Optional[SparsePoly[C]]:
     """Return an exact quotient over the coefficient ring, or no value.
 
@@ -144,6 +228,17 @@ def divide_exact[C: CoefficientRing](f: SparsePoly[C], g: SparsePoly[C], mut bud
     f._same(g, budget)
     if g.is_zero():
         raise PolyError(PolyErrorKind.DOMAIN, "division by zero polynomial")
+    if len(g.terms) == 1:
+        return _divide_by_term(f, g, budget)
+    comptime if C == ZZ or C == ModInt:
+        if not f.is_zero() and len(g.terms) > 1:
+            var fast = _fast_divide_exact(f, g, budget)
+            if fast:
+                return fast.take()
+    var applicable = False
+    var packed = _heap_divide(f, g, applicable, budget)
+    if applicable:
+        return packed^
     var others: List[SparsePoly[C]] = [g._copy(budget)]
     var order = _division_order(f, others, budget)
     var pending = f.reorder(order, budget)
@@ -163,6 +258,102 @@ def divide_exact[C: CoefficientRing](f: SparsePoly[C], g: SparsePoly[C], mut bud
         _allocation[Term[C]](1, budget)
         terms.append(term^)
     return _from_descending(terms^, divisor, budget).reorder(f.order, budget)
+
+
+def divide_exact_dense[C: CoefficientRing](f: DensePoly[C], g: DensePoly[C], mut budget: Budget) raises PolyError -> Optional[DensePoly[C]]:
+    """Return the exact dense quotient over the coefficient ring, or no value; the dense counterpart of divide_exact.
+
+    Parameters:
+        C: ZZ or a coefficient field.
+
+    Args:
+        f: The dividend.
+        g: The nonzero divisor in the same variable and ring.
+        budget: The shared work allowance.
+
+    Returns:
+        The quotient if g divides f, otherwise None.
+
+    Raises:
+        PolyError: DOMAIN for invalid operands, UNSUPPORTED for another ring, LIMIT or CAPACITY on work limits.
+    """
+    f._same(g)
+    if g.is_zero():
+        raise PolyError(PolyErrorKind.DOMAIN, "division by zero polynomial")
+    if f.is_zero():
+        return DensePoly[C](f.variable, f.ring.copy())
+    if len(f.coefficients) < len(g.coefficients):
+        return None
+    comptime if C == ModInt:
+        var fast = _word_divmod(rebind[DensePoly[ModInt]](f), rebind[DensePoly[ModInt]](g), budget)
+        if fast:
+            if not fast.value().remainder.is_zero():
+                return None
+            return rebind[DensePoly[C]](fast.value().quotient).copy()
+    comptime if C == ZZ:
+        if len(g.coefficients) >= 32:
+            var q = _ntt_divide_exact(_view(f.coefficients), _view(g.coefficients), budget)
+            if q:
+                var quotient = q.take()
+                if not quotient:
+                    return None
+                return DensePoly[C]._from_canonical(f.variable, f.ring, quotient.take())
+    var order = MonomialOrder(MonomialOrder.LEX, [f.variable], budget)
+    var sparse = divide_exact(f.to_sparse(order, budget), g.to_sparse(order, budget), budget)
+    if not sparse:
+        return None
+    return DensePoly[C].from_sparse(sparse.value(), budget, variable=Optional(f.variable))
+
+
+def _univariate[C: CoefficientRing](p: SparsePoly[C]) -> Optional[Int64]:
+    """The single variable of a nonconstant univariate polynomial."""
+    var variable = Optional[Int64](None)
+    for term in p.terms:
+        if len(term.monomial.pairs) > 1:
+            return None
+        if len(term.monomial.pairs):
+            var v = term.monomial.pairs[0][0]
+            if variable and variable.value() != v:
+                return None
+            variable = v
+    return variable
+
+
+def _fast_divide_exact[C: CoefficientRing](f: SparsePoly[C], g: SparsePoly[C], mut budget: Budget) raises PolyError -> Optional[Optional[SparsePoly[C]]]:
+    """Exact ZZ or GF(p) division by dense transforms (one variable) or packed chunks (LEX), or None when neither applies."""
+    var x = _univariate(f)
+    var y = _univariate(g)
+    if x and y and x.value() == y.value():
+        var a = DensePoly[C].from_sparse(f, budget)
+        var b = DensePoly[C].from_sparse(g, budget)
+        comptime if C == ModInt:
+            # Short divisors divide faster on Montgomery word residues than by transforms.
+            if len(b.coefficients) < _WORD_DIVISION:
+                var fast = _word_divmod(rebind[DensePoly[ModInt]](a), rebind[DensePoly[ModInt]](b), budget)
+                if fast:
+                    if not fast.value().remainder.is_zero():
+                        return Optional(Optional[SparsePoly[C]](None))
+                    return Optional(Optional(rebind[DensePoly[C]](fast.value().quotient).to_sparse(f.order, budget)))
+        comptime if C == ZZ:
+            if len(a.coefficients) >= len(b.coefficients):
+                var small = _zz_exact(_view(a.coefficients), _view(b.coefficients), budget)
+                if small:
+                    var quotient = small.take()
+                    if not quotient:
+                        return Optional(Optional[SparsePoly[C]](None))
+                    var dense = DensePoly[C]._from_canonical(a.variable, a.ring, quotient.take())
+                    return Optional(Optional(dense.to_sparse(f.order, budget)))
+        if len(b.coefficients) >= 32 and len(a.coefficients) >= len(b.coefficients):
+            var q = _ntt_divide_exact(_view(a.coefficients), _view(b.coefficients), budget)
+            if q:
+                var quotient = q.take()
+                if not quotient:
+                    return Optional(Optional[SparsePoly[C]](None))
+                var dense = DensePoly[C]._from_canonical(a.variable, a.ring, quotient.take())
+                return Optional(Optional(dense.to_sparse(f.order, budget)))
+    if f.order.kind == MonomialOrder.LEX and len(f.terms) >= 256:
+        return _packed_divide(f, g, budget)
+    return None
 
 
 def divide_by_list[C: CoefficientField](f: SparsePoly[C], divisors: List[SparsePoly[C]], mut budget: Budget) raises PolyError -> ListDivision[C]:

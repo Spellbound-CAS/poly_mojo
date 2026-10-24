@@ -25,7 +25,7 @@ Raw coefficient iterables should first go through `dense.asarray`,
 | Newton basis | Every coefficient, including trailing zeros, and all nodes |
 | Chebyshev or Bernstein basis | Basis name and full coefficient extent, including representation degree |
 | Rational function | Reduced numerator and monic denominator over QQ, QQi, GF(p), AA, or QQbar |
-| Algebraic scalar | Exact defining polynomial, isolating interval, and complete Sturm witness for each real component |
+| Algebraic scalar | Exact defining polynomial and Descartes isolating interval for each real component |
 | Batch | Shape and every logical item in row-major order, including nested batches |
 
 Supported standalone scalars are `Int`, `Integer`, `Rational`, `ExactComplex`,
@@ -128,8 +128,10 @@ including unused axes.
 
 Use `loads[algebraic.Real]` for `AA` and `loads[algebraic.Complex]` for
 `QQbar`. Each real component retains its defining polynomial, rational
-isolating endpoints, and complete Sturm witness. Loading checks that the
-witness identifies exactly one root before accepting the coefficient. Complex
+isolating endpoints. Loading checks that the polynomial changes sign across
+the interval with Descartes bound 1 before accepting the coefficient. Records
+written before Descartes witnesses carried Sturm sequences and fail with
+`ENCODING`; recompute those values. Complex
 values carry separate real and imaginary witnesses.
 
 <!-- example: docs/examples/array_algebraic_serialization.mojo -->

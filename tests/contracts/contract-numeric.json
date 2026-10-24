@@ -1,0 +1,1557 @@
+{
+  "contract": "Numerical",
+  "revision": 2,
+  "exports": [
+    {
+      "module": "numeric_evaluate",
+      "name": "AdaptiveEvaluation",
+      "signature": "@fieldwise_init\nstruct AdaptiveEvaluation[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "outcome",
+          "signature": "var outcome: NumericOutcome",
+          "members": []
+        },
+        {
+          "name": "evaluation",
+          "signature": "var evaluation: EnclosureEvaluation[Self.D]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_domains",
+      "name": "BallDomain",
+      "signature": "struct BallDomain(NumericDomain)",
+      "members": [
+        {
+          "name": "Scalar",
+          "signature": "comptime Scalar = Ball",
+          "members": []
+        },
+        {
+          "name": "Context",
+          "signature": "comptime Context = BallContext",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_domains",
+      "name": "ComplexBallDomain",
+      "signature": "struct ComplexBallDomain(NumericDomain)",
+      "members": [
+        {
+          "name": "Scalar",
+          "signature": "comptime Scalar = ComplexBall",
+          "members": []
+        },
+        {
+          "name": "Context",
+          "signature": "comptime Context = BallContext",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "ComplexBoundarySegment",
+      "signature": "@fieldwise_init\nstruct ComplexBoundarySegment(Copyable, Movable)",
+      "members": [
+        {
+          "name": "start",
+          "signature": "var start: NumericBox",
+          "members": []
+        },
+        {
+          "name": "end",
+          "signature": "var end: NumericBox",
+          "members": []
+        },
+        {
+          "name": "evaluation",
+          "signature": "var evaluation: EnclosureEvaluation[ComplexBallDomain]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_domains",
+      "name": "ComplexDomain",
+      "signature": "struct ComplexDomain(NumericDomain)",
+      "members": [
+        {
+          "name": "Scalar",
+          "signature": "comptime Scalar = Complex",
+          "members": []
+        },
+        {
+          "name": "Context",
+          "signature": "comptime Context = ComplexContext",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "ComplexRootRegion",
+      "signature": "@fieldwise_init\nstruct ComplexRootRegion(Copyable, Movable)",
+      "members": [
+        {
+          "name": "rectangle",
+          "signature": "var rectangle: NumericBox",
+          "members": []
+        },
+        {
+          "name": "count",
+          "signature": "var count: Int",
+          "members": []
+        },
+        {
+          "name": "boundary",
+          "signature": "var boundary: List[ComplexBoundarySegment]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "ComplexRootResult",
+      "signature": "@fieldwise_init\nstruct ComplexRootResult(Copyable, Movable)",
+      "members": [
+        {
+          "name": "outcome",
+          "signature": "var outcome: NumericOutcome",
+          "members": []
+        },
+        {
+          "name": "complete",
+          "signature": "var complete: Bool",
+          "members": []
+        },
+        {
+          "name": "accurate",
+          "signature": "var accurate: Bool",
+          "members": []
+        },
+        {
+          "name": "isolated",
+          "signature": "var isolated: Bool",
+          "members": []
+        },
+        {
+          "name": "regions",
+          "signature": "var regions: List[ComplexRootRegion]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "ComplexRootSink",
+      "signature": "trait ComplexRootSink",
+      "members": [
+        {
+          "name": "write",
+          "signature": "def write(mut self, var region: ComplexRootRegion, mut budget: Budget) raises PolyError",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "root_stream_check",
+      "name": "ComplexRootStreamChecker",
+      "signature": "@fieldwise_init\nstruct ComplexRootStreamChecker(ComplexRootSink, Movable)",
+      "members": [
+        {
+          "name": "from_dense",
+          "signature": "@staticmethod\ndef from_dense[C: CoefficientRing](poly: DensePoly[C], options: NumericOptions, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_numeric",
+          "signature": "@staticmethod\ndef from_numeric[D: NumericDomain](poly: NumericDensePoly[D], options: NumericOptions, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "write",
+          "signature": "def write(mut self, var witness: ComplexRootRegion, mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "accept",
+          "signature": "def accept(mut self, var witness: ComplexRootRegion, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        },
+        {
+          "name": "finish",
+          "signature": "def finish(self, receipt: RootStreamReceipt, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "descartes",
+      "name": "DescartesRootItem",
+      "signature": "@fieldwise_init\nstruct DescartesRootItem(Copyable, Movable)",
+      "members": [
+        {
+          "name": "leaf",
+          "signature": "var leaf: DescartesLeaf",
+          "members": []
+        },
+        {
+          "name": "root",
+          "signature": "var root: Optional[QQ]",
+          "members": []
+        },
+        {
+          "name": "brackets",
+          "signature": "var brackets: List[RootInterval]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "descartes",
+      "name": "DescartesRootSink",
+      "signature": "trait DescartesRootSink",
+      "members": [
+        {
+          "name": "begin",
+          "signature": "def begin(mut self, squarefree: DensePoly[ZZ], cofactor: DensePoly[ZZ], bound_exponent: Int, mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "write",
+          "signature": "def write(mut self, var item: DescartesRootItem, mut budget: Budget) raises PolyError",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "descartes",
+      "name": "DescartesStreamChecker",
+      "signature": "@fieldwise_init\nstruct DescartesStreamChecker(DescartesRootSink, Movable)",
+      "members": [
+        {
+          "name": "from_dense",
+          "signature": "@staticmethod\ndef from_dense[C: CoefficientRing](poly: DensePoly[C], options: NumericOptions, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "begin",
+          "signature": "def begin(mut self, squarefree: DensePoly[ZZ], cofactor: DensePoly[ZZ], bound_exponent: Int, mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "write",
+          "signature": "def write(mut self, var item: DescartesRootItem, mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "accept",
+          "signature": "def accept(mut self, var item: DescartesRootItem, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        },
+        {
+          "name": "finish",
+          "signature": "def finish(self, receipt: RootStreamReceipt, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "EnclosureEvaluation",
+      "signature": "@fieldwise_init\nstruct EnclosureEvaluation[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "precision",
+          "signature": "var precision: Int",
+          "members": []
+        },
+        {
+          "name": "value",
+          "signature": "def value(self, mut budget: Budget) raises PolyError -> Self.D.Scalar",
+          "members": []
+        },
+        {
+          "name": "steps",
+          "signature": "var steps: List[NumericBox]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_stream",
+      "name": "EnclosureStream",
+      "signature": "@fieldwise_init\nstruct EnclosureStream[D: NumericDomain](Movable)",
+      "members": [
+        {
+          "name": "from_dense",
+          "signature": "@staticmethod\ndef from_dense[C: CoefficientRing](poly: DensePoly[C], argument: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_sparse",
+          "signature": "@staticmethod\ndef from_sparse[C: CoefficientRing](poly: SparsePoly[C], assignments: List[Tuple[Int64, Self.D.Scalar]], context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_numeric",
+          "signature": "@staticmethod\ndef from_numeric[E: NumericDomain](poly: NumericDensePoly[E], argument: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_numeric_sparse",
+          "signature": "@staticmethod\ndef from_numeric_sparse[E: NumericDomain](poly: NumericSparsePoly[E], assignments: List[Tuple[Int64, Self.D.Scalar]], context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "step_count",
+          "signature": "def step_count(self) -> Int",
+          "members": []
+        },
+        {
+          "name": "next",
+          "signature": "def next(mut self, mut budget: Budget) raises PolyError -> Optional[NumericBox]",
+          "members": []
+        },
+        {
+          "name": "finish",
+          "signature": "def finish(self, mut budget: Budget) raises PolyError -> StreamedEnclosure[Self.D]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_stream",
+      "name": "EnclosureStreamChecker",
+      "signature": "@fieldwise_init\nstruct EnclosureStreamChecker[D: NumericDomain](Movable)",
+      "members": [
+        {
+          "name": "from_dense",
+          "signature": "@staticmethod\ndef from_dense[C: CoefficientRing](poly: DensePoly[C], argument: Self.D.Scalar, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_sparse",
+          "signature": "@staticmethod\ndef from_sparse[C: CoefficientRing](poly: SparsePoly[C], assignments: List[Tuple[Int64, Self.D.Scalar]], mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_numeric",
+          "signature": "@staticmethod\ndef from_numeric[E: NumericDomain](poly: NumericDensePoly[E], argument: Self.D.Scalar, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "from_numeric_sparse",
+          "signature": "@staticmethod\ndef from_numeric_sparse[E: NumericDomain](poly: NumericSparsePoly[E], assignments: List[Tuple[Int64, Self.D.Scalar]], mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "step_count",
+          "signature": "def step_count(self) -> Int",
+          "members": []
+        },
+        {
+          "name": "accept",
+          "signature": "def accept(mut self, var bounds: NumericBox, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        },
+        {
+          "name": "finish",
+          "signature": "def finish(self, receipt: StreamedEnclosure[Self.D], mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_domains",
+      "name": "FloatDomain",
+      "signature": "struct FloatDomain(NumericDomain)",
+      "members": [
+        {
+          "name": "Scalar",
+          "signature": "comptime Scalar = Float",
+          "members": []
+        },
+        {
+          "name": "Context",
+          "signature": "comptime Context = ArithmeticContext",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_bases",
+      "name": "NumericBasisPolynomial",
+      "signature": "@fieldwise_init\nstruct NumericBasisPolynomial[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "NEWTON",
+          "signature": "comptime NEWTON = UInt8(0)",
+          "members": []
+        },
+        {
+          "name": "CHEBYSHEV",
+          "signature": "comptime CHEBYSHEV = UInt8(1)",
+          "members": []
+        },
+        {
+          "name": "BERNSTEIN",
+          "signature": "comptime BERNSTEIN = UInt8(2)",
+          "members": []
+        },
+        {
+          "name": "variable",
+          "signature": "var variable: Int64",
+          "members": []
+        },
+        {
+          "name": "kind",
+          "signature": "var kind: UInt8",
+          "members": []
+        },
+        {
+          "name": "coefficients",
+          "signature": "var coefficients: List[Self.D.Scalar]",
+          "members": []
+        },
+        {
+          "name": "nodes",
+          "signature": "var nodes: List[Self.D.Scalar]",
+          "members": []
+        },
+        {
+          "name": "newton",
+          "signature": "@staticmethod\ndef newton(poly: NumericDensePoly[Self.D], nodes: List[Self.D.Scalar], context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "chebyshev",
+          "signature": "@staticmethod\ndef chebyshev(poly: NumericDensePoly[Self.D], context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "bernstein",
+          "signature": "@staticmethod\ndef bernstein(poly: NumericDensePoly[Self.D], degree: Int, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "to_polynomial",
+          "signature": "def to_polynomial(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[Self.D]",
+          "members": []
+        },
+        {
+          "name": "evaluate",
+          "signature": "def evaluate(self, point: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self.D.Scalar",
+          "members": []
+        },
+        {
+          "name": "subdivide",
+          "signature": "def subdivide(self, point: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Tuple[Self, Self]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_bounds",
+      "name": "NumericBox",
+      "signature": "@fieldwise_init\nstruct NumericBox(Copyable, Movable, Equatable, Writable)",
+      "members": [
+        {
+          "name": "real_low",
+          "signature": "var real_low: QQ",
+          "members": []
+        },
+        {
+          "name": "real_high",
+          "signature": "var real_high: QQ",
+          "members": []
+        },
+        {
+          "name": "imag_low",
+          "signature": "var imag_low: QQ",
+          "members": []
+        },
+        {
+          "name": "imag_high",
+          "signature": "var imag_high: QQ",
+          "members": []
+        },
+        {
+          "name": "real_interval",
+          "signature": "@staticmethod\ndef real_interval(low: QQ, high: QQ, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "point",
+          "signature": "@staticmethod\ndef point(real: QQ, imag: QQ, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "contains",
+          "signature": "def contains(self, other: Self, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_dense",
+      "name": "NumericDensePoly",
+      "signature": "struct NumericDensePoly[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "variable",
+          "signature": "var variable: Int64",
+          "members": []
+        },
+        {
+          "name": "coefficients",
+          "signature": "var coefficients: List[Self.D.Scalar]",
+          "members": []
+        },
+        {
+          "name": "__init__",
+          "signature": "def __init__(out self, variable: Int64 = 0)",
+          "members": []
+        },
+        {
+          "name": "from_coefficients",
+          "signature": "@staticmethod\ndef from_coefficients(variable: Int64, var coefficients: List[Self.D.Scalar], mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "degree_bound",
+          "signature": "def degree_bound(self) -> Int",
+          "members": []
+        },
+        {
+          "name": "certified_degree",
+          "signature": "def certified_degree(self, mut budget: Budget) raises PolyError -> Optional[Int]",
+          "members": []
+        },
+        {
+          "name": "add",
+          "signature": "def add(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "sub",
+          "signature": "def sub(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "neg",
+          "signature": "def neg(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "mul",
+          "signature": "def mul(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "scale",
+          "signature": "def scale(self, scalar: Self.D.Scalar, context: Self.D.Context, mut budget: Budget, *, divide: Bool = False) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "pow",
+          "signature": "def pow(self, exponent: UInt64, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "derivative",
+          "signature": "def derivative(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "evaluate",
+          "signature": "def evaluate(self, value: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self.D.Scalar",
+          "members": []
+        },
+        {
+          "name": "evaluate_with_derivative",
+          "signature": "def evaluate_with_derivative(self, value: Self.D.Scalar, context: Self.D.Context, mut budget: Budget) raises PolyError -> Tuple[Self.D.Scalar, Self.D.Scalar]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_division",
+      "name": "NumericDivisionResult",
+      "signature": "@fieldwise_init\nstruct NumericDivisionResult[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "quotient",
+          "signature": "var quotient: NumericDensePoly[Self.D]",
+          "members": []
+        },
+        {
+          "name": "remainder",
+          "signature": "var remainder: NumericDensePoly[Self.D]",
+          "members": []
+        },
+        {
+          "name": "residual",
+          "signature": "var residual: List[NumericBox]",
+          "members": []
+        },
+        {
+          "name": "steps",
+          "signature": "var steps: List[NumericDivisionStep]",
+          "members": []
+        },
+        {
+          "name": "uniform",
+          "signature": "var uniform: Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_division",
+      "name": "NumericDivisionStep",
+      "signature": "@fieldwise_init\nstruct NumericDivisionStep(Copyable, Movable)",
+      "members": [
+        {
+          "name": "quotient",
+          "signature": "var quotient: NumericBox",
+          "members": []
+        },
+        {
+          "name": "tail",
+          "signature": "var tail: List[NumericBox]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_domains",
+      "name": "NumericDomain",
+      "signature": "trait NumericDomain",
+      "members": [
+        {
+          "name": "Scalar",
+          "signature": "comptime Scalar: Copyable & Writable & Deinitable",
+          "members": []
+        },
+        {
+          "name": "Context",
+          "signature": "comptime Context: Copyable & Writable & Deinitable",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_options",
+      "name": "NumericOptions",
+      "signature": "struct NumericOptions(ImplicitlyCopyable, Writable)",
+      "members": [
+        {
+          "name": "initial_precision",
+          "signature": "var initial_precision: Int",
+          "members": []
+        },
+        {
+          "name": "max_precision",
+          "signature": "var max_precision: Int",
+          "members": []
+        },
+        {
+          "name": "absolute_bits",
+          "signature": "var absolute_bits: Int",
+          "members": []
+        },
+        {
+          "name": "relative_bits",
+          "signature": "var relative_bits: Int",
+          "members": []
+        },
+        {
+          "name": "max_subdivisions",
+          "signature": "var max_subdivisions: Int",
+          "members": []
+        },
+        {
+          "name": "require_isolation",
+          "signature": "var require_isolation: Bool",
+          "members": []
+        },
+        {
+          "name": "__init__",
+          "signature": "def __init__(out self, *, initial_precision: Int = 128, max_precision: Int = 1024, absolute_bits: Int = 32, relative_bits: Int = 0, max_subdivisions: Int = 4096, require_isolation: Bool = True)",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_options",
+      "name": "NumericOutcome",
+      "signature": "@fieldwise_init\nstruct NumericOutcome(ImplicitlyCopyable, Equatable, Writable)",
+      "members": [
+        {
+          "name": "code",
+          "signature": "var code: UInt8",
+          "members": []
+        },
+        {
+          "name": "SUCCESS",
+          "signature": "comptime SUCCESS = Self(0)",
+          "members": []
+        },
+        {
+          "name": "UNCERTAIN_DEGREE",
+          "signature": "comptime UNCERTAIN_DEGREE = Self(1)",
+          "members": []
+        },
+        {
+          "name": "INPUT_UNCERTAINTY",
+          "signature": "comptime INPUT_UNCERTAINTY = Self(2)",
+          "members": []
+        },
+        {
+          "name": "PRECISION_CEILING",
+          "signature": "comptime PRECISION_CEILING = Self(3)",
+          "members": []
+        },
+        {
+          "name": "SUBDIVISION_LIMIT",
+          "signature": "comptime SUBDIVISION_LIMIT = Self(4)",
+          "members": []
+        },
+        {
+          "name": "UNRESOLVED_BOUNDARY",
+          "signature": "comptime UNRESOLVED_BOUNDARY = Self(5)",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_series",
+      "name": "NumericSeries",
+      "signature": "@fieldwise_init\nstruct NumericSeries[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "polynomial",
+          "signature": "var polynomial: NumericDensePoly[Self.D]",
+          "members": []
+        },
+        {
+          "name": "order",
+          "signature": "var order: Int",
+          "members": []
+        },
+        {
+          "name": "from_polynomial",
+          "signature": "@staticmethod\ndef from_polynomial(poly: NumericDensePoly[Self.D], order: Int, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "truncate",
+          "signature": "def truncate(self, order: Int, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "add",
+          "signature": "def add(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "sub",
+          "signature": "def sub(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "mul",
+          "signature": "def mul(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "divide",
+          "signature": "def divide(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "inverse",
+          "signature": "def inverse(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "compose",
+          "signature": "def compose(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "derivative",
+          "signature": "def derivative(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "integrate",
+          "signature": "def integrate(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "log",
+          "signature": "def log(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "exp",
+          "signature": "def exp(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "revert",
+          "signature": "def revert(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_sparse",
+      "name": "NumericSparsePoly",
+      "signature": "struct NumericSparsePoly[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "order",
+          "signature": "var order: MonomialOrder",
+          "members": []
+        },
+        {
+          "name": "terms",
+          "signature": "var terms: List[NumericTerm[Self.D]]",
+          "members": []
+        },
+        {
+          "name": "__init__",
+          "signature": "def __init__(out self, var order: MonomialOrder)",
+          "members": []
+        },
+        {
+          "name": "from_terms",
+          "signature": "@staticmethod\ndef from_terms(var terms: List[NumericTerm[Self.D]], order: MonomialOrder, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "degree_bound",
+          "signature": "def degree_bound(self, mut budget: Budget) raises PolyError -> Int",
+          "members": []
+        },
+        {
+          "name": "certified_degree",
+          "signature": "def certified_degree(self, mut budget: Budget) raises PolyError -> Optional[Int]",
+          "members": []
+        },
+        {
+          "name": "add",
+          "signature": "def add(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "sub",
+          "signature": "def sub(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "neg",
+          "signature": "def neg(self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "mul",
+          "signature": "def mul(self, other: Self, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "scale",
+          "signature": "def scale(self, scalar: Self.D.Scalar, context: Self.D.Context, mut budget: Budget, *, divide: Bool = False) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "pow",
+          "signature": "def pow(self, exponent: UInt64, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "derivative",
+          "signature": "def derivative(self, variable: Int64, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "evaluate",
+          "signature": "def evaluate(self, assignments: List[Tuple[Int64, Self.D.Scalar]], context: Self.D.Context, mut budget: Budget) raises PolyError -> Self.D.Scalar",
+          "members": []
+        },
+        {
+          "name": "from_dense",
+          "signature": "@staticmethod\ndef from_dense(poly: NumericDensePoly[Self.D], order: MonomialOrder, context: Self.D.Context, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "to_dense",
+          "signature": "def to_dense(self, variable: Int64, context: Self.D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[Self.D]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_sparse",
+      "name": "NumericTerm",
+      "signature": "@fieldwise_init\nstruct NumericTerm[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "monomial",
+          "signature": "var monomial: Monomial",
+          "members": []
+        },
+        {
+          "name": "coefficient",
+          "signature": "var coefficient: Self.D.Scalar",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "PolishedRootResult",
+      "signature": "@fieldwise_init\nstruct PolishedRootResult(Copyable, Movable)",
+      "members": [
+        {
+          "name": "candidate",
+          "signature": "var candidate: Complex",
+          "members": []
+        },
+        {
+          "name": "iterations",
+          "signature": "var iterations: Int",
+          "members": []
+        },
+        {
+          "name": "region",
+          "signature": "var region: Optional[ComplexRootRegion]",
+          "members": []
+        },
+        {
+          "name": "outcome",
+          "signature": "var outcome: NumericOutcome",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "RealRootCell",
+      "signature": "@fieldwise_init\nstruct RealRootCell(Copyable, Movable)",
+      "members": [
+        {
+          "name": "interval",
+          "signature": "var interval: NumericBox",
+          "members": []
+        },
+        {
+          "name": "count",
+          "signature": "var count: Int",
+          "members": []
+        },
+        {
+          "name": "method",
+          "signature": "var method: UInt8",
+          "members": []
+        },
+        {
+          "name": "evaluations",
+          "signature": "var evaluations: List[EnclosureEvaluation[BallDomain]]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "RealRootResult",
+      "signature": "@fieldwise_init\nstruct RealRootResult(Copyable, Movable)",
+      "members": [
+        {
+          "name": "outcome",
+          "signature": "var outcome: NumericOutcome",
+          "members": []
+        },
+        {
+          "name": "complete",
+          "signature": "var complete: Bool",
+          "members": []
+        },
+        {
+          "name": "accurate",
+          "signature": "var accurate: Bool",
+          "members": []
+        },
+        {
+          "name": "isolated",
+          "signature": "var isolated: Bool",
+          "members": []
+        },
+        {
+          "name": "cells",
+          "signature": "var cells: List[RealRootCell]",
+          "members": []
+        },
+        {
+          "name": "sequence",
+          "signature": "var sequence: Optional[SturmSequence]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "RealRootSink",
+      "signature": "trait RealRootSink",
+      "members": [
+        {
+          "name": "begin",
+          "signature": "def begin(mut self, sequence: Optional[SturmSequence], mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "write",
+          "signature": "def write(mut self, var cell: RealRootCell, mut budget: Budget) raises PolyError",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "root_stream_check",
+      "name": "RealRootStreamChecker",
+      "signature": "@fieldwise_init\nstruct RealRootStreamChecker(RealRootSink, Movable)",
+      "members": [
+        {
+          "name": "from_numeric",
+          "signature": "@staticmethod\ndef from_numeric[D: NumericDomain](poly: NumericDensePoly[D], options: NumericOptions, mut budget: Budget) raises PolyError -> Self",
+          "members": []
+        },
+        {
+          "name": "begin",
+          "signature": "def begin(mut self, sequence: Optional[SturmSequence], mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "write",
+          "signature": "def write(mut self, var witness: RealRootCell, mut budget: Budget) raises PolyError",
+          "members": []
+        },
+        {
+          "name": "accept",
+          "signature": "def accept(mut self, var witness: RealRootCell, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        },
+        {
+          "name": "finish",
+          "signature": "def finish(self, receipt: RootStreamReceipt, mut budget: Budget) raises PolyError -> Bool",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "RootDiagnostics",
+      "signature": "@fieldwise_init\nstruct RootDiagnostics(Copyable, Movable)",
+      "members": [
+        {
+          "name": "residual",
+          "signature": "var residual: NumericBox",
+          "members": []
+        },
+        {
+          "name": "derivative",
+          "signature": "var derivative: NumericBox",
+          "members": []
+        },
+        {
+          "name": "backward_error_low",
+          "signature": "var backward_error_low: QQ",
+          "members": []
+        },
+        {
+          "name": "backward_error_high",
+          "signature": "var backward_error_high: QQ",
+          "members": []
+        },
+        {
+          "name": "newton_correction_upper",
+          "signature": "var newton_correction_upper: Optional[QQ]",
+          "members": []
+        },
+        {
+          "name": "coefficient_sensitivity_upper",
+          "signature": "var coefficient_sensitivity_upper: Optional[QQ]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_multiplicity",
+      "name": "RootMultiplicityCertificate",
+      "signature": "@fieldwise_init\nstruct RootMultiplicityCertificate(Copyable, Movable)",
+      "members": [
+        {
+          "name": "decomposition",
+          "signature": "var decomposition: SquarefreeDecomposition[QQ]",
+          "members": []
+        },
+        {
+          "name": "blocks",
+          "signature": "var blocks: List[Int]",
+          "members": []
+        },
+        {
+          "name": "multiplicities",
+          "signature": "var multiplicities: List[Int]",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "root_stream",
+      "name": "RootStreamReceipt",
+      "signature": "@fieldwise_init\nstruct RootStreamReceipt(Copyable, Movable)",
+      "members": [
+        {
+          "name": "outcome",
+          "signature": "var outcome: NumericOutcome",
+          "members": []
+        },
+        {
+          "name": "complete",
+          "signature": "var complete: Bool",
+          "members": []
+        },
+        {
+          "name": "accurate",
+          "signature": "var accurate: Bool",
+          "members": []
+        },
+        {
+          "name": "isolated",
+          "signature": "var isolated: Bool",
+          "members": []
+        },
+        {
+          "name": "items",
+          "signature": "var items: Int",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_stream",
+      "name": "StreamedEnclosure",
+      "signature": "@fieldwise_init\nstruct StreamedEnclosure[D: NumericDomain](Copyable, Movable)",
+      "members": [
+        {
+          "name": "precision",
+          "signature": "var precision: Int",
+          "members": []
+        },
+        {
+          "name": "steps",
+          "signature": "var steps: Int",
+          "members": []
+        },
+        {
+          "name": "value",
+          "signature": "def value(self, mut budget: Budget) raises PolyError -> Self.D.Scalar",
+          "members": []
+        }
+      ]
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "adaptive_enclose_dense",
+      "signature": "def adaptive_enclose_dense[D: NumericDomain, C: CoefficientRing](poly: DensePoly[C], argument: D.Scalar, options: NumericOptions, mut budget: Budget) raises PolyError -> AdaptiveEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "adaptive_enclose_sparse",
+      "signature": "def adaptive_enclose_sparse[D: NumericDomain, C: CoefficientRing](poly: SparsePoly[C], assignments: List[Tuple[Int64, D.Scalar]], options: NumericOptions, mut budget: Budget) raises PolyError -> AdaptiveEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "check_complex_roots_exact",
+      "signature": "def check_complex_roots_exact[C: CoefficientRing](poly: DensePoly[C], result: ComplexRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "check_complex_roots_numeric",
+      "signature": "def check_complex_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], result: ComplexRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "check_enclose_dense",
+      "signature": "def check_enclose_dense[D: NumericDomain, C: CoefficientRing](poly: DensePoly[C], argument: D.Scalar, certificate: EnclosureEvaluation[D], mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "check_enclose_numeric",
+      "signature": "def check_enclose_numeric[D: NumericDomain, E: NumericDomain](poly: NumericDensePoly[E], argument: D.Scalar, certificate: EnclosureEvaluation[D], mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "check_enclose_numeric_sparse",
+      "signature": "def check_enclose_numeric_sparse[D: NumericDomain, E: NumericDomain](poly: NumericSparsePoly[E], assignments: List[Tuple[Int64, D.Scalar]], certificate: EnclosureEvaluation[D], mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "check_enclose_sparse",
+      "signature": "def check_enclose_sparse[D: NumericDomain, C: CoefficientRing](poly: SparsePoly[C], assignments: List[Tuple[Int64, D.Scalar]], certificate: EnclosureEvaluation[D], mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "check_numeric_accuracy",
+      "signature": "def check_numeric_accuracy[D: NumericDomain](result: AdaptiveEvaluation[D], options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_division",
+      "name": "check_numeric_division",
+      "signature": "def check_numeric_division[D: NumericDomain](f: NumericDensePoly[D], g: NumericDensePoly[D], result: NumericDivisionResult[D], mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "check_polished_root_exact",
+      "signature": "def check_polished_root_exact[C: CoefficientRing](poly: DensePoly[C], result: PolishedRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "check_polished_root_numeric",
+      "signature": "def check_polished_root_numeric[D: NumericDomain](poly: NumericDensePoly[D], result: PolishedRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_multiplicity",
+      "name": "check_real_root_multiplicities",
+      "signature": "def check_real_root_multiplicities[C: CoefficientRing](poly: DensePoly[C], roots: DescartesRootResult, options: NumericOptions, certificate: RootMultiplicityCertificate, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "check_real_roots_exact",
+      "signature": "def check_real_roots_exact[C: CoefficientRing](poly: DensePoly[C], result: DescartesRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "check_real_roots_numeric",
+      "signature": "def check_real_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], result: RealRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "check_root_diagnostics_exact",
+      "signature": "def check_root_diagnostics_exact[C: CoefficientRing](poly: DensePoly[C], point: NumericBox, result: RootDiagnostics, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "check_root_diagnostics_numeric",
+      "signature": "def check_root_diagnostics_numeric[D: NumericDomain](poly: NumericDensePoly[D], point: NumericBox, result: RootDiagnostics, mut budget: Budget) raises PolyError -> Bool",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "complex_roots_exact",
+      "signature": "def complex_roots_exact[C: CoefficientRing](poly: DensePoly[C], options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> ComplexRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "complex_roots_exact_to",
+      "signature": "def complex_roots_exact_to[C: CoefficientRing, S: ComplexRootSink](poly: DensePoly[C], options: NumericOptions, mut sink: S, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RootStreamReceipt",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "complex_roots_numeric",
+      "signature": "def complex_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> ComplexRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_complex_roots",
+      "name": "complex_roots_numeric_to",
+      "signature": "def complex_roots_numeric_to[D: NumericDomain, S: ComplexRootSink](poly: NumericDensePoly[D], options: NumericOptions, mut sink: S, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RootStreamReceipt",
+      "members": []
+    },
+    {
+      "module": "numeric_convert",
+      "name": "convert_numeric_dense",
+      "signature": "def convert_numeric_dense[E: NumericDomain, D: NumericDomain](poly: NumericDensePoly[D], context: E.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[E]",
+      "members": []
+    },
+    {
+      "module": "numeric_convert",
+      "name": "convert_numeric_sparse",
+      "signature": "def convert_numeric_sparse[E: NumericDomain, D: NumericDomain](poly: NumericSparsePoly[D], context: E.Context, mut budget: Budget) raises PolyError -> NumericSparsePoly[E]",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "deserialize_numeric_dense",
+      "signature": "def deserialize_numeric_dense[D: NumericDomain](text: String, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "deserialize_numeric_dense_from",
+      "signature": "def deserialize_numeric_dense_from[D: NumericDomain, S: PolynomialTextSource](var source: S, mut budget: Budget, *, max_field_bytes: Int = 16777216) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "deserialize_numeric_sparse",
+      "signature": "def deserialize_numeric_sparse[D: NumericDomain](text: String, mut budget: Budget) raises PolyError -> NumericSparsePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "deserialize_numeric_sparse_from",
+      "signature": "def deserialize_numeric_sparse_from[D: NumericDomain, S: PolynomialTextSource](var source: S, mut budget: Budget, *, max_field_bytes: Int = 16777216) raises PolyError -> NumericSparsePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "enclose_dense",
+      "signature": "def enclose_dense[D: NumericDomain, C: CoefficientRing](poly: DensePoly[C], argument: D.Scalar, context: D.Context, mut budget: Budget) raises PolyError -> EnclosureEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "enclose_numeric",
+      "signature": "def enclose_numeric[D: NumericDomain, E: NumericDomain](poly: NumericDensePoly[E], argument: D.Scalar, context: D.Context, mut budget: Budget) raises PolyError -> EnclosureEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "enclose_numeric_sparse",
+      "signature": "def enclose_numeric_sparse[D: NumericDomain, E: NumericDomain](poly: NumericSparsePoly[E], assignments: List[Tuple[Int64, D.Scalar]], context: D.Context, mut budget: Budget) raises PolyError -> EnclosureEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_evaluate",
+      "name": "enclose_sparse",
+      "signature": "def enclose_sparse[D: NumericDomain, C: CoefficientRing](poly: SparsePoly[C], assignments: List[Tuple[Int64, D.Scalar]], context: D.Context, mut budget: Budget) raises PolyError -> EnclosureEvaluation[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_affine_transform",
+      "signature": "def numeric_affine_transform[D: NumericDomain](poly: NumericDensePoly[D], scale: D.Scalar, shift: D.Scalar, context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_bounds",
+      "name": "numeric_bounds",
+      "signature": "def numeric_bounds[D: NumericDomain](value: D.Scalar, mut budget: Budget) raises PolyError -> NumericBox",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_compose_dense",
+      "signature": "def numeric_compose_dense[D: NumericDomain](outer: NumericDensePoly[D], inner: NumericDensePoly[D], context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_definite_integral",
+      "signature": "def numeric_definite_integral[D: NumericDomain](poly: NumericDensePoly[D], low: D.Scalar, high: D.Scalar, context: D.Context, mut budget: Budget) raises PolyError -> D.Scalar",
+      "members": []
+    },
+    {
+      "module": "numeric_division",
+      "name": "numeric_divmod",
+      "signature": "def numeric_divmod[D: NumericDomain](f: NumericDensePoly[D], g: NumericDensePoly[D], context: D.Context, mut budget: Budget) raises PolyError -> NumericDivisionResult[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_convert",
+      "name": "numeric_from_dense",
+      "signature": "def numeric_from_dense[D: NumericDomain, C: CoefficientRing](poly: DensePoly[C], context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_convert",
+      "name": "numeric_from_sparse",
+      "signature": "def numeric_from_sparse[D: NumericDomain, C: CoefficientRing](poly: SparsePoly[C], context: D.Context, mut budget: Budget) raises PolyError -> NumericSparsePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_interpolation",
+      "name": "numeric_hermite_interpolate",
+      "signature": "def numeric_hermite_interpolate[D: NumericDomain](variable: Int64, points: List[D.Scalar], jets: List[List[D.Scalar]], context: D.Context, mut budget: Budget, *, derivatives: Bool = True) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_integrate_dense",
+      "signature": "def numeric_integrate_dense[D: NumericDomain](poly: NumericDensePoly[D], context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_integrate_sparse",
+      "signature": "def numeric_integrate_sparse[D: NumericDomain](poly: NumericSparsePoly[D], variable: Int64, context: D.Context, mut budget: Budget) raises PolyError -> NumericSparsePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_interpolation",
+      "name": "numeric_interpolate",
+      "signature": "def numeric_interpolate[D: NumericDomain](variable: Int64, points: List[D.Scalar], values: List[D.Scalar], context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_jet_evaluate",
+      "signature": "def numeric_jet_evaluate[D: NumericDomain](poly: NumericDensePoly[D], point: D.Scalar, order: Int, context: D.Context, mut budget: Budget) raises PolyError -> List[D.Scalar]",
+      "members": []
+    },
+    {
+      "module": "numeric_interpolation",
+      "name": "numeric_multipoint_evaluate",
+      "signature": "def numeric_multipoint_evaluate[D: NumericDomain](poly: NumericDensePoly[D], points: List[D.Scalar], context: D.Context, mut budget: Budget) raises PolyError -> List[D.Scalar]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_substitute_many",
+      "signature": "def numeric_substitute_many[D: NumericDomain](poly: NumericSparsePoly[D], assignments: List[Tuple[Int64, NumericSparsePoly[D]]], context: D.Context, mut budget: Budget) raises PolyError -> NumericSparsePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_calculus",
+      "name": "numeric_taylor_shift",
+      "signature": "def numeric_taylor_shift[D: NumericDomain](poly: NumericDensePoly[D], point: D.Scalar, context: D.Context, mut budget: Budget) raises PolyError -> NumericDensePoly[D]",
+      "members": []
+    },
+    {
+      "module": "numeric_bounds",
+      "name": "numeric_value",
+      "signature": "def numeric_value[D: NumericDomain](bounds: NumericBox, context: D.Context, mut budget: Budget) raises PolyError -> D.Scalar",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "polish_root_exact",
+      "signature": "def polish_root_exact[C: CoefficientRing](poly: DensePoly[C], seed: Complex, radius: QQ, iterations: Int, context: ComplexContext, options: NumericOptions, mut budget: Budget) raises PolyError -> PolishedRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "polish_root_numeric",
+      "signature": "def polish_root_numeric[D: NumericDomain](poly: NumericDensePoly[D], seed: Complex, radius: QQ, iterations: Int, context: ComplexContext, options: NumericOptions, mut budget: Budget) raises PolyError -> PolishedRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_multiplicity",
+      "name": "real_root_multiplicities",
+      "signature": "def real_root_multiplicities[C: CoefficientRing](poly: DensePoly[C], roots: DescartesRootResult, options: NumericOptions, mut budget: Budget) raises PolyError -> RootMultiplicityCertificate",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "real_roots_exact",
+      "signature": "def real_roots_exact[C: CoefficientRing](poly: DensePoly[C], options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> DescartesRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "real_roots_exact_to",
+      "signature": "def real_roots_exact_to[C: CoefficientRing, S: DescartesRootSink](poly: DensePoly[C], options: NumericOptions, mut sink: S, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RootStreamReceipt",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "real_roots_numeric",
+      "signature": "def real_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RealRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_real_roots",
+      "name": "real_roots_numeric_to",
+      "signature": "def real_roots_numeric_to[D: NumericDomain, S: RealRootSink](poly: NumericDensePoly[D], options: NumericOptions, mut sink: S, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RootStreamReceipt",
+      "members": []
+    },
+    {
+      "module": "numeric_refine",
+      "name": "refine_complex_roots_exact",
+      "signature": "def refine_complex_roots_exact[C: CoefficientRing](poly: DensePoly[C], previous: ComplexRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> ComplexRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_refine",
+      "name": "refine_complex_roots_numeric",
+      "signature": "def refine_complex_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], previous: ComplexRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> ComplexRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_refine",
+      "name": "refine_real_roots_exact",
+      "signature": "def refine_real_roots_exact[C: CoefficientRing](poly: DensePoly[C], previous: DescartesRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False, trusted: Bool = False) raises PolyError -> DescartesRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_refine",
+      "name": "refine_real_roots_numeric",
+      "signature": "def refine_real_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], previous: RealRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RealRootResult",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "root_diagnostics_exact",
+      "signature": "def root_diagnostics_exact[C: CoefficientRing](poly: DensePoly[C], point: NumericBox, mut budget: Budget) raises PolyError -> RootDiagnostics",
+      "members": []
+    },
+    {
+      "module": "numeric_diagnostics",
+      "name": "root_diagnostics_numeric",
+      "signature": "def root_diagnostics_numeric[D: NumericDomain](poly: NumericDensePoly[D], point: NumericBox, mut budget: Budget) raises PolyError -> RootDiagnostics",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "serialize_numeric_dense",
+      "signature": "def serialize_numeric_dense[D: NumericDomain](poly: NumericDensePoly[D], mut budget: Budget) raises PolyError -> String",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "serialize_numeric_dense_to",
+      "signature": "def serialize_numeric_dense_to[D: NumericDomain, S: PolynomialTextSink](poly: NumericDensePoly[D], mut sink: S, mut budget: Budget, *, chunk_bytes: Int = 4096) raises PolyError",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "serialize_numeric_sparse",
+      "signature": "def serialize_numeric_sparse[D: NumericDomain](poly: NumericSparsePoly[D], mut budget: Budget) raises PolyError -> String",
+      "members": []
+    },
+    {
+      "module": "numeric_interchange",
+      "name": "serialize_numeric_sparse_to",
+      "signature": "def serialize_numeric_sparse_to[D: NumericDomain, S: PolynomialTextSink](poly: NumericSparsePoly[D], mut sink: S, mut budget: Budget, *, chunk_bytes: Int = 4096) raises PolyError",
+      "members": []
+    }
+  ]
+}

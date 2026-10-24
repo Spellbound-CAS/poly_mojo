@@ -9,22 +9,26 @@ from .calculus import derivative_dense, rational_dense, rational_sparse, integra
 from .interpolation import MultipointPlan, interpolate, hermite_interpolate, check_interpolation, check_hermite_interpolation
 from .monomial import Monomial, MonomialOrder
 from .sparse import Term, SparsePoly
+from .packed import PackedPoly, packed_mul, packed_pow, packed_divide_exact
 from .coefficient_buffer import CoefficientBuffer
 from .dense import DensePoly, KARATSUBA_THRESHOLD
 from .evaluate import evaluate, evaluate_dense, substitute, derivative
 from .codec import to_kernel_bytes, from_kernel_bytes, MAX_KERNEL_BYTES
-from .division import divmod, pseudo_divmod, divide_exact, divide_by_list
+from .division import divmod, pseudo_divmod, divide_exact, divide_exact_dense, divide_by_list
 from .primes import prime, crt
-from .gcd import content, primitive_part, gcd, extended_gcd, coprimality_certificate
+from .gcd import content, primitive_part, gcd, gcd_value, extended_gcd, coprimality_certificate
 from .sparse_gcd import sparse_gcd, sparse_gcd_integer
 from .determinant import DeterminantStep, ProjectionResultantCertificate, projection_resultant, check_projection_resultant
 from .cad_projection import CADProjectionCertificate, cad_projection, check_cad_projection
 from .lazard import LazardEvaluationCertificate, lazard_evaluate, check_lazard_evaluation
-from .cad_types import CADPolynomialLift, CADStackCertificate, CADCell, CADCertificate, CADCellCertificate, CADCoveringCertificate
+from .cad_types import CADPolynomialLift, CADStackCertificate, CADCell, CADSignWitness, CADCertificate, CADCellCertificate, CADCoveringCertificate
 from .cad import cad, check_cad, cad_cell, check_cad_cell
+from .cad_final_types import CADFinalCell
+from .cad_final import CADFinalCertificate, cad_final, check_cad_final
 from .cad_covering import cad_covering, check_cad_covering
 from .cylindrical_covering import CADConflict, CADConflictInterval, CylindricalCoveringCertificate, cylindrical_covering, check_cylindrical_covering
-from .resultant import resultant, subresultants
+from .cad_coverings_search import CoveringBound, CoveringInterval, CoveringNode, CADCoveringsCertificate, coverings_solve, check_coverings
+from .resultant import resultant, resultant_value, subresultants
 from .fractions import RationalFunction
 from .squarefree import squarefree
 from .sparse_squarefree import SparseSquarefreeDecomposition, squarefree_multivariate, check_sparse_squarefree_product
@@ -33,15 +37,16 @@ from .finite_field import factor_mod_p, factor_finite_field
 from .gaussian_factor import factor_gaussian
 from .factor import factor, factor_integer
 from .multivariate_factor import MultivariateFactorization, factor_multivariate, factor_multivariate_integer, check_multivariate_factorization
-from .groebner import GroebnerBasis, groebner, reduce, membership
+from .groebner import GroebnerBasis, GroebnerTrace, TraceTerm, groebner, reduce, membership, check_groebner_basis
 from .certificates import MembershipCertificate, check_membership
 from .roots import RootInterval, RootIsolation, sturm_sequence, sign_changes, count_roots, isolate_real_roots, refine, sign_on_interval
 from .certificates import SturmSequence, RootCountCertificate, check_root_count
+from .descartes import DescartesLeaf, DescartesCertificate, DescartesRootResult, check_descartes, descartes_intervals, AlgebraicDescartesCertificate, check_algebraic_descartes, DescartesCountCertificate, descartes_count, check_descartes_count
 from .certificates import SquarefreeDecomposition, Factorization, check_squarefree_product, check_factorization
 from .certificates import DivisionResult, ListDivision, GcdResult, ResultantResult, ContentGcdStep, CoprimalityNode, CoprimalityCertificate, CancellationCertificate, check_division, check_list_division, check_common_divisor, check_bezout, check_coprimality, check_resultant_identity, check_cancellation
 from .algebraic_arithmetic import AlgebraicArithmeticCertificate, check_algebraic_arithmetic
 from .algebraic_evaluation import AlgebraicEvaluationCertificate, algebraic_evaluate, check_algebraic_evaluation
-from .algebraic_roots import AlgebraicRootsCertificate, algebraic_roots, check_algebraic_roots
+from .algebraic_roots import AlgebraicRootsCertificate, AlgebraicRootFilter, algebraic_roots, check_algebraic_roots
 from .algebraic_specialization import AlgebraicPolynomialEvaluation, AlgebraicSpecializationCertificate, AlgebraicRootsAtCertificate, algebraic_evaluate_sparse, check_algebraic_evaluate_sparse, algebraic_specialize, check_algebraic_specialization, algebraic_roots_at, check_algebraic_roots_at
 from .algebraic import algebraic_add, algebraic_subtract, algebraic_multiply, algebraic_negate, algebraic_inverse
 
@@ -78,6 +83,7 @@ from .root_stream import RootStreamReceipt
 from .numeric_real_roots import RealRootSink, real_roots_exact_to, real_roots_numeric_to
 from .numeric_complex_roots import ComplexRootSink, complex_roots_exact_to, complex_roots_numeric_to
 from .root_stream_check import RealRootStreamChecker, ComplexRootStreamChecker
+from .descartes import DescartesRootItem, DescartesRootSink, DescartesStreamChecker
 from .cad_stream import CADStreamEvent, CADStreamReceipt, CADSink, CADStreamChecker, cad_to
 
 from .cad_fiber import CADFiber

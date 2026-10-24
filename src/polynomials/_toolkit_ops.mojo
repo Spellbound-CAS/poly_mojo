@@ -1,6 +1,15 @@
 """Private arithmetic schedules shared by exact and numerical coefficient vectors."""
 from .coefficient_buffer import _CoefficientView, _view
-from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum
+from .errors import Budget, PolyError, PolyErrorKind, _allocation, _charge_size, _product, _sum
+from .coefficients import ModInt, Modulus, QQ
+from ._series_rational import _compose_rational
+from ._nmod import _Field, _field, _to_reduced, _from, _mulm
+from ._multipoint import _compose_series
+from ._series_words import _word_divide, _word_exp, _naturals, _wrap
+from ._nmod import _wide_mod
+
+comptime _NATIVE_COMPOSE = 16
+"""Truncation order from which prime field and rational compositions use Brent-Kung steps."""
 
 
 trait _ScalarOps:
@@ -57,6 +66,10 @@ def _convolve_values[O: _ScalarOps](a: _CoefficientView[O.Scalar, _], b: _Coeffi
     if length < 0:
         raise PolyError(PolyErrorKind.DOMAIN, "negative truncation order")
     var n = min(length, _sum(len(a), len(b)) - 1) if len(a) and len(b) else 0
+    comptime if O.Scalar == ModInt and O.EXACT:
+        if n >= _NATIVE_SERIES:
+            ref ring = rebind[Modulus](context)
+            return _as_mod_ints[O.Scalar](_native_convolve(_residues_of(a), _residues_of(b), n, ring.value, budget), ring, budget)
     _allocation[O.Scalar](n, budget)
     var result = List[O.Scalar](length=n, fill=O.integer(0, context, budget))
     for i in range(min(n, len(a))):
@@ -72,6 +85,37 @@ def _compose_values[O: _ScalarOps, optimized: Bool = True](outer: _CoefficientVi
     var result = List[O.Scalar]()
     if not length:
         return result^
+    comptime if O.Scalar == ModInt and optimized:
+        ref ring = rebind[Modulus](context)
+        if length >= _NATIVE_COMPOSE and len(outer) >= _NATIVE_COMPOSE and ring.value > 2:
+            var field = _field(ring.value)
+            _allocation[UInt64](len(outer) + len(inner), budget)
+            var f = List[UInt64](capacity=len(outer))
+            for i in range(len(outer)):
+                f.append(_to_reduced(rebind[ModInt](outer[i]).value, field))
+            var g = List[UInt64](capacity=len(inner))
+            for i in range(len(inner)):
+                g.append(_to_reduced(rebind[ModInt](inner[i]).value, field))
+            var values = _compose_series(f, g, length, field, budget)
+            _allocation[O.Scalar](len(values), budget)
+            result.reserve(len(values))
+            # REDC leaves canonical residues: no reduction on the way out.
+            var zero = ModInt(0, ring)
+            for v in values:
+                result.append(rebind_var[O.Scalar](zero._with_residue(_from(v, field))))
+            return result^
+    comptime if O.Scalar == QQ and optimized:
+        if length >= _NATIVE_COMPOSE and len(outer) >= _NATIVE_COMPOSE:
+            _allocation[QQ](len(outer) + len(inner), budget)
+            var f = List[QQ](capacity=len(outer))
+            for i in range(len(outer)):
+                f.append(rebind[QQ](outer[i]).copy())
+            var g = List[QQ](capacity=len(inner))
+            for i in range(len(inner)):
+                g.append(rebind[QQ](inner[i]).copy())
+            var composed = _compose_rational(_view(f), _view(g), length, budget)
+            if composed:
+                return rebind_var[List[O.Scalar]](composed.take())
     for i in range(len(outer) - 1, -1, -1):
         budget.charge(1)
         comptime if optimized:
@@ -129,6 +173,17 @@ def _divide_values[O: _ScalarOps, inverse_only: Bool = False](a: _CoefficientVie
         raise PolyError(PolyErrorKind.DOMAIN, "negative truncation order")
     if not len(b):
         raise PolyError(PolyErrorKind.DOMAIN, "zero series divisor")
+    comptime if O.Scalar == ModInt and O.EXACT:
+        # A zero constant takes the generic path, which raises.
+        ref ring = rebind[Modulus](context)
+        if length >= _NATIVE_SERIES and ring.value > 2 and rebind[ModInt](b[0]).value != 0:
+            var f = _field(ring.value)
+            var numerator = List[UInt64]()
+            if inverse_only:
+                numerator.append(f.one)
+            else:
+                numerator = _montgomery_of(a, f)
+            return _from_montgomery[O.Scalar](_word_divide(numerator, _montgomery_of(b, f), length, f, budget), ring, f, budget)
     var inverse = O.apply(O.integer(1, context, budget), b[0], 3, context, budget)
     _allocation[O.Scalar](length, budget)
     var result = List[O.Scalar](capacity=length)
@@ -209,3 +264,65 @@ def _hermite_values[O: _ScalarOps](points: _CoefficientView[O.Scalar, _], jets: 
             var updated_basis_5 = _mul_values[O](_view(basis), _view(linear), _sum(total, 1), context, budget)
             basis = updated_basis_5^
     return result^
+
+
+# ------------------------------------------- native residue recurrences
+
+comptime _NATIVE_SERIES = 32
+"""Prime-field quadratic recurrences of at least this length run on native words."""
+
+
+def _residues_of[T: Copyable & Deinitable](values: _CoefficientView[T, _]) -> List[UInt64]:
+    var out = List[UInt64](capacity=len(values))
+    for i in range(len(values)):
+        out.append(rebind[ModInt](values[i]).value)
+    return out^
+
+
+def _native_convolve(a: List[UInt64], b: List[UInt64], n: Int, p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The first n coefficients of a * b modulo p, one reduction per coefficient."""
+    var wrap = _wrap(p)
+    var out = List[UInt64](capacity=n)
+    for s in range(n):
+        var lo = max(0, s - len(b) + 1)
+        var hi = min(s, len(a) - 1)
+        _charge_size(_product(2, max(0, hi - lo + 1)), budget)
+        var low = UInt128(0)
+        var carry = UInt64(0)
+        for i in range(lo, hi + 1):
+            var t = low + UInt128(a.unsafe_get(i)) * UInt128(b.unsafe_get(s - i))
+            carry += UInt64(1) if t < low else UInt64(0)
+            low = t
+        out.append(_wide_mod(low, carry, p, wrap))
+    return out^
+
+
+def _montgomery_of[T: Copyable & Deinitable](values: _CoefficientView[T, _], f: _Field) -> List[UInt64]:
+    var out = List[UInt64](capacity=len(values))
+    var i = 0
+    while i < len(values):
+        var run = values._run(i)
+        for j in range(len(run)):
+            out.append(_mulm(rebind[ModInt](run[j]).value, f.r2, f))
+        i += len(run)
+    return out^
+
+
+def _from_montgomery[T: Writable & Copyable & Deinitable](values: List[UInt64], ring: Modulus, f: _Field, mut budget: Budget) raises PolyError -> List[T]:
+    _allocation[T](len(values), budget)
+    var out = List[T](capacity=len(values))
+    # REDC leaves canonical residues: no reduction on the way out.
+    var zero = ModInt(0, ring)
+    for v in values:
+        out.append(rebind_var[T](zero._with_residue(_from(v, f))))
+    return out^
+
+
+def _as_mod_ints[T: Writable & Copyable & Deinitable](values: List[UInt64], ring: Modulus, mut budget: Budget) raises PolyError -> List[T]:
+    """ModInts of canonical residues below the modulus."""
+    _allocation[T](len(values), budget)
+    var out = List[T](capacity=len(values))
+    var zero = ModInt(0, ring)
+    for v in values:
+        out.append(rebind_var[T](zero._with_residue(v)))
+    return out^

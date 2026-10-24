@@ -1,7 +1,10 @@
 """Shared formal-series schedules with explicit truncation and scalar domains."""
 from .coefficient_buffer import _CoefficientView, _view
 from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum
-from ._toolkit_ops import _ScalarOps, _values, _mul_values, _divide_values, _compose_values, _derivative_values
+from ._toolkit_ops import _ScalarOps, _values, _mul_values, _divide_values, _compose_values, _derivative_values, _NATIVE_SERIES, _montgomery_of, _from_montgomery
+from ._series_words import _word_exp, _naturals
+from ._nmod import _field
+from .coefficients import ModInt, Modulus
 
 
 def _series_shape(order: Int, count: Int, mut budget: Budget) raises PolyError:
@@ -56,6 +59,12 @@ def _exp_values[O: _ScalarOps](a: _CoefficientView[O.Scalar, _], length: Int, co
     if length < 1:
         raise PolyError(PolyErrorKind.DOMAIN, "exponential needs a known constant coefficient")
     _series_constant[O](_view(a), 0, context, budget)
+    comptime if O.Scalar == ModInt and O.EXACT:
+        # Every n < length must be invertible; otherwise the generic path raises.
+        ref ring = rebind[Modulus](context)
+        if length >= _NATIVE_SERIES and UInt64(length) <= ring.value and ring.value > 2:
+            var f = _field(ring.value)
+            return _from_montgomery[O.Scalar](_word_exp(_montgomery_of(a, f), length, _naturals(length, f, budget), f, budget), ring, f, budget)
     _allocation[O.Scalar](length, budget)
     var result = List[O.Scalar](capacity=length)
     result.append(O.integer(1, context, budget))
@@ -123,17 +132,16 @@ def _newton_revert[O: _ScalarOps](a: _CoefficientView[O.Scalar, _], linear_inver
     while known < length:
         var next = _sum(known, min(known, length - known))
         var prefix = _values[O](_view(a), min(len(a), next), context, budget)
-        var error = _compose_values[O](_view(prefix), _view(result), next, context, budget)
-        var updated_error_1 = _values[O](_view(error), next, context, budget)
-        error = updated_error_1^
-        error[1] = O.apply(error[1], O.integer(1, context, budget), 1, context, budget)
-        var derivative = _derivative_values[O](_view(prefix), context, budget)
-        var slope = _compose_values[O](_view(derivative), _view(result), next - known, context, budget)
+        var composed = _values[O](_view(_compose_values[O](_view(prefix), _view(result), next, context, budget)), next, context, budget)
         _allocation[O.Scalar](next - known, budget)
         var high = List[O.Scalar](capacity=next - known)
         for i in range(known, next):
-            high.append(O.copy(error[i], budget))
-        var correction = _divide_values[O](_view(high), _view(slope), next - known, context, budget)
+            high.append(O.copy(composed[i], budget))
+        # a'(g) = (a o g)' / g', so the correction (a(g) - x) / a'(g) is
+        # high * g' / (a o g)' and needs no second composition.
+        var slope = _values[O](_view(_derivative_values[O](_view(composed), context, budget)), next - known, context, budget)
+        var numerator = _mul_values[O](_view(high), _view(_derivative_values[O](_view(result), context, budget)), next - known, context, budget)
+        var correction = _newton_divide[O](_view(numerator), _view(slope), next - known, context, budget)
         _allocation[O.Scalar](next - known, budget)
         result.reserve(next)
         for value in correction:

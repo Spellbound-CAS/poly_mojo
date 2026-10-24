@@ -79,7 +79,7 @@ def algebraic_sign(value: RealAlgebraic, mut budget: Budget) raises PolyError ->
 
 
 def check_real_algebraic(value: RealAlgebraic, mut budget: Budget) raises PolyError -> Bool:
-    """Verify an algebraic value by exact evaluation or a Sturm recurrence.
+    """Verify an algebraic value by exact evaluation or a Descartes root bound.
 
     Args:
         value: The proposed rational value or unique real root witness.

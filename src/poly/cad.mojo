@@ -5,11 +5,15 @@ from polynomials import PolynomialTextSource, PolynomialTextSink, BallDomain, QQ
 from ._common import _grow
 from std.iter import Iterable, iter, next, StopIteration
 from std.memory import ArcPointer
-from polynomials import Budget, PolyError, PolyErrorKind, SparsePoly, CADCertificate, CylindricalCoveringCertificate, CADSink, CADStreamReceipt, CADStreamChecker, CADProjectionCertificate, CADCell
+from std.collections import Dict
+from polynomials import Budget, PolyError, PolyErrorKind, SparsePoly, CADCertificate, CADCoveringsCertificate, CADSink, CADStreamReceipt, CADStreamChecker, CADProjectionCertificate, CADCell, CADFiber
+from polynomials import CADFinalCertificate, CADFinalCell, cad_final, check_cad_final
 from . import sparse, _cad_algebraic as _aa, _cad_fixed as _cf
 
 comptime _Checker[k: Int] = _aa._Checker if k == 4 else CADStreamChecker
 from .algebraic import Real, _plain, _copy_witness
+from polynomials import real_root
+import apn_mojo as apn
 from ._common import _Element, _Nested, _Kind, _allocation, _Ring, _FieldKind
 
 
@@ -392,7 +396,7 @@ def _constraints[I: Iterable, P: Copyable & Deinitable](constraints: I, mut budg
 @fieldwise_init
 struct _DecompositionData(Copyable, Movable):
     var inputs: List[SparsePoly[QQ]]
-    var proof: CADCertificate
+    var proof: CADFinalCertificate
     var embedding: Optional[ArcPointer[_aa._Embedding]]
     var fixed: List[Tuple[Int, Real]]
 
@@ -406,11 +410,11 @@ struct Decomposition[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
     """
     var _data: ArcPointer[_DecompositionData]
 
-    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CADCertificate:
+    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CADFinalCertificate:
         """Borrow the decomposition and its proof on the selected coordinate slice.
 
         Returns:
-            Immutable projection, cell, and lifting data; use cad.check to verify its scope.
+            Immutable compact final evidence; use cad.check to verify its scope and cad.cells to request absolute geometry.
         """
         return self._data[].proof
 
@@ -448,7 +452,7 @@ struct Decomposition[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
 struct _SolutionData(Copyable, Movable):
     var inputs: List[SparsePoly[QQ]]
     var masks: List[UInt8]
-    var proof: CylindricalCoveringCertificate
+    var proof: CADCoveringsCertificate
     var embedding: Optional[ArcPointer[_aa._Embedding]]
     var fixed: List[Tuple[Int, Real]]
 
@@ -468,10 +472,10 @@ struct Solution[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
         Returns:
             True for a witness, False for a covering proof of failure.
         """
-        return self._data[].proof.witness_cell >= 0
+        return self._data[].proof.satisfiable()
 
-    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CylindricalCoveringCertificate:
-        """Borrow the selective covering certificate.
+    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CADCoveringsCertificate:
+        """Borrow the coverings certificate: a satisfying point or a covering tree.
 
         Returns:
             Immutable evidence for this conjunction, not a full decomposition.
@@ -508,7 +512,7 @@ struct Solution[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
         var field704 = ArcPointer(field705^)
         return Self(field704^)
 
-def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](polynomials: I, mut budget: Budget, *, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
+def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](polynomials: I, mut budget: Budget, *, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
     """Decompose real space into cells where every input has a constant sign.
 
     Parameters:
@@ -520,7 +524,7 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](p
         polynomials: A finite iterable of integer, rational, or real-algebraic sparse polynomials.
         budget: The shared work allowance for preparation and computation.
         axes: All axes in base-to-top order; defaults to increasing axis order.
-        lazard: Use Lazard projection; False selects the more restricted McCallum route.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -531,7 +535,7 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](p
     return decompose[I, P, C, List[Tuple[Int, Int]]](polynomials, budget, axes=axes, lazard=lazard, fixed=List[Tuple[Int, Int]]())
 
 
-def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](polynomials: I, *, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
+def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](polynomials: I, *, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
     """Decompose real space into cells where every input has a constant sign.
 
     Parameters:
@@ -543,7 +547,7 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](p
         polynomials: A finite iterable of integer, rational, or real-algebraic sparse polynomials.
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
         axes: All axes in base-to-top order; defaults to increasing axis order.
-        lazard: Use Lazard projection; False selects the more restricted McCallum route.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -623,9 +627,10 @@ def check[P: Copyable & Deinitable](result: Decomposition[P], mut budget: Budget
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
     ref data = result._data[]
-    if not _cf._check(data.inputs, data.embedding, data.fixed, data.proof.projection.variables, sparse._width[P](), budget):
+    var variables = data.proof.variables(budget)
+    if not _cf._check(data.inputs, data.embedding, data.fixed, variables, sparse._width[P](), budget):
         return False
-    return _cf._fiber(data.embedding, data.fixed, budget).check(data.inputs, data.proof, budget)
+    return check_cad_final(data.inputs, variables, List[UInt8](), data.proof, budget, fixed=_cf._prefix(data.embedding, data.fixed, budget))
 
 
 def check[P: Copyable & Deinitable](result: Decomposition[P], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Bool:
@@ -665,7 +670,7 @@ def check[P: Copyable & Deinitable](result: Solution[P], mut budget: Budget) rai
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
     ref data = result._data[]
-    if not _cf._check(data.inputs, data.embedding, data.fixed, data.proof.projection.variables, sparse._width[P](), budget) or not _cf._check_masks(data.inputs, data.masks, data.embedding, data.fixed, budget):
+    if not _cf._check(data.inputs, data.embedding, data.fixed, data.proof.variables, sparse._width[P](), budget) or not _cf._check_masks(data.inputs, data.masks, data.embedding, data.fixed, budget):
         return False
     return _cf._fiber(data.embedding, data.fixed, budget).check(data.inputs, data.masks, data.proof, budget)
 
@@ -690,7 +695,199 @@ def check[P: Copyable & Deinitable](result: Solution[P], *, max_steps: UInt64 = 
     return check(result, budget)
 
 
-def _point[P: Copyable & Deinitable](stored_cells: List[CADCell], variables: List[Int64], index: Int, mut budget: Budget) raises PolyError -> List[Real]:
+comptime _OUTPUT_BITS = 830
+"""Irrational output coordinates are refined to width at most 2^-_OUTPUT_BITS."""
+
+
+def _grid_sign(g: List[apn.Integer], j: apn.Integer, k: Int) raises -> Int:
+    """The exact sign of G(j / 2^k) for integer G, from 2^(k deg G) G(j / 2^k) by Horner."""
+    var n = len(g) - 1
+    var acc = g[n].copy()
+    for i in range(n - 1, -1, -1):
+        acc = acc * j + (g[i] << (k * (n - i)))
+    return acc.sign()
+
+
+def _fixed_values(g: List[apn.Integer], t: apn.Integer, precision: Int) raises -> Tuple[apn.Integer, apn.Integer]:
+    """2^precision G(t / 2^precision) and the same for G', floor-rounded."""
+    var n = len(g) - 1
+    var value = g[n] << precision
+    var slope = (g[n] * apn.Integer(n)) << precision if n else apn.Integer(0)
+    for i in range(n - 1, -1, -1):
+        value = ((value * t) >> precision) + (g[i] << precision)
+        if i:
+            slope = ((slope * t) >> precision) + ((g[i] * apn.Integer(i)) << precision)
+    return (value^, slope^)
+
+
+def _dyadic_cell(sample: RealAlgebraic, mut work: Int) raises -> Optional[Tuple[apn.Rational, apn.Rational]]:
+    """The interval `_output` refines an irrational sample to, without its bisection, or None.
+
+    Refinement to the output width bisects the stored isolating interval
+    [L, H]: its validation splits and its narrowing both halve dyadic cells
+    of [L, H], and they stop at the first depth k with width (H - L) / 2^k at
+    most half the output width. The result is therefore the depth-k cell
+    that holds the root strictly inside, whenever no midpoint is the root.
+    Here the root is located by safeguarded Newton on G(t) = c f(L + (H - L) t)
+    in fixed point, and a cell is accepted only when G has opposite nonzero
+    signs at its ends, which also excludes every coarser midpoint.
+    """
+    var low = sample.low.value.copy()
+    var span = sample.high.value - low
+    # Refinement returns an interval narrower than the output width unchanged.
+    if span < apn.Rational(apn.Integer(1), apn.Integer(1) << _OUTPUT_BITS):
+        return None
+    # The first depth k with span / 2^k <= 2^-(_OUTPUT_BITS + 1).
+    var ratio = span * apn.Rational(apn.Integer(1) << (_OUTPUT_BITS + 1))
+    var k = max(0, ratio.numerator().magnitude_bit_length() - ratio.denominator().magnitude_bit_length() - 1)
+    while ratio.numerator() > ratio.denominator() << k:
+        k += 1
+    while k > 0 and ratio.numerator() <= ratio.denominator() << (k - 1):
+        k -= 1
+    # G(t) = f(L + span t) by Horner over polynomials in t, then integral.
+    ref coefficients = sample.polynomial.coefficients
+    var n = len(coefficients) - 1
+    if n < 1:
+        return None
+    work += n * n + 1
+    var shifted: List[apn.Rational] = [coefficients[n].value.copy()]
+    for i in range(n - 1, -1, -1):
+        var next = List[apn.Rational](length=len(shifted) + 1, fill=apn.Rational(0))
+        for d in range(len(shifted)):
+            next[d] = next[d] + shifted[d] * low
+            next[d + 1] = next[d + 1] + shifted[d] * span
+        next[0] = next[0] + coefficients[i].value
+        shifted = next^
+    var common = apn.Integer(1)
+    for c in shifted:
+        common = apn.lcm(common, c.denominator())
+    var g = List[apn.Integer](capacity=len(shifted))
+    for c in shifted:
+        g.append((c * apn.Rational(common)).to_integer_exact())
+    # Refinement first validates the interval: Descartes' bound of exactly one
+    # leaves it whole. The variations of (1 + x)^n G(1 / (1 + x)), the bound on
+    # (0, 1), must be exactly one here; a nonsquarefree f only adds fallbacks.
+    var reflected = List[apn.Integer](capacity=n + 1)
+    for i in range(n, -1, -1):
+        reflected.append(g[i].copy())
+    for i in range(n):
+        for d in range(n - 1, i - 1, -1):
+            reflected[d] = reflected[d] + reflected[d + 1]
+    var variations = 0
+    var previous = 0
+    for c in reflected:
+        var sign = c.sign()
+        if sign != 0:
+            if previous != 0 and sign != previous:
+                variations += 1
+            previous = sign
+    if variations != 1:
+        return None
+    # The root lies in (0, 1), where G changes sign.
+    var below = g[0].sign()
+    var whole = apn.Integer(0)
+    for c in g:
+        whole = whole + c
+    if below == 0 or whole.sign() == 0 or whole.sign() == below:
+        return None
+    var precision = k + 64
+    var lo = apn.Integer(0)
+    var hi = apn.Integer(1) << precision
+    var t = hi >> 1
+    var tolerance = apn.Integer(1) << max(0, precision - k - 16)
+    var converged = False
+    for _ in range(4 * precision + 64):
+        work += n + 1
+        var values = _fixed_values(g, t, precision)
+        var s = values[0].sign()
+        if s == 0:
+            converged = True
+            break
+        if s == below:
+            lo = t.copy()
+        else:
+            hi = t.copy()
+        var candidate = (lo + hi) >> 1
+        if values[1].sign() != 0:
+            var newton = t - (values[0] << precision) // values[1]
+            if newton > lo and newton < hi:
+                candidate = newton^
+        var step = candidate - t
+        if step.sign() < 0:
+            step = apn.Integer(0) - step
+        t = candidate^
+        if step < tolerance or hi - lo < tolerance:
+            converged = True
+            break
+    if not converged:
+        return None
+    var cells = apn.Integer(1) << k
+    var j = t >> (precision - k)
+    # Rounding can leave the estimate one cell off; the exact signs decide.
+    for offset in [0, -1, 1]:
+        var cell = j + apn.Integer(offset)
+        if cell.sign() < 0 or not (cell < cells):
+            continue
+        work += 2 * n + 2
+        var left = _grid_sign(g, cell, k)
+        var right = _grid_sign(g, cell + apn.Integer(1), k)
+        if left != 0 and right != 0 and left != right:
+            var step = span / apn.Rational(cells)
+            var a = low + step * apn.Rational(cell)
+            var b = a + step
+            return (a^, b^)
+    return None
+
+
+def _dyadic_output(sample: RealAlgebraic, mut budget: Budget) raises PolyError -> Optional[Real]:
+    """`_output` of an irrational sample from `_dyadic_cell`, or None to refine it."""
+    var work = 0
+    var cell: Optional[Tuple[apn.Rational, apn.Rational]]
+    try:
+        cell = _dyadic_cell(sample, work)
+    except e:
+        raise PolyError(PolyErrorKind.CAPACITY, String(e))
+    budget.charge(UInt64(work))
+    if not cell:
+        return None
+    ref ends = cell.value()
+    return _plain(real_root(sample.polynomial, QQ(ends[0].copy()), QQ(ends[1].copy()), budget), budget)
+
+
+def _output(sample: RealAlgebraic, mut budget: Budget) raises PolyError -> Real:
+    # A plain copy of a stored sample at the output precision; lifting keeps the stored interval.
+    if not sample.rational and _OUTPUT_BITS != 0:
+        var direct = _dyadic_output(sample, budget)
+        if direct:
+            return direct.take()
+    var value = _plain(_copy_witness(sample, budget), budget)
+    if sample.rational or _OUTPUT_BITS == 0:
+        return value^
+    var width: apn.Rational
+    try:
+        width = apn.Rational(apn.Integer(1), apn.Integer(1) << apn.Integer(_OUTPUT_BITS))
+    except e:
+        raise PolyError(PolyErrorKind.CAPACITY, String(e))
+    return _alg.refine(value, width, budget)
+
+
+def _sample_key(sample: RealAlgebraic, mut budget: Budget) raises PolyError -> String:
+    """The defining polynomial and isolating interval, all that `_output` reads of an irrational sample."""
+    var key = String()
+    for i in range(len(sample.polynomial.coefficients)):
+        key.write(sample.polynomial.coefficients[i].value, ",")
+    key.write(":", sample.low.value, ":", sample.high.value)
+    budget.charge(UInt64(key.byte_length() // 64 + 1))
+    return key^
+
+
+def _point[P: Copyable & Deinitable](stored_cells: List[CADFinalCell], variables: List[Int64], index: Int, mut budget: Budget) raises PolyError -> List[Real]:
+    var outputs = List[Optional[Real]](length=len(stored_cells), fill=None)
+    var refined = Dict[String, Int]()
+    return _point_cached[P](stored_cells, variables, index, outputs, refined, budget)
+
+
+def _point_cached[P: Copyable & Deinitable](stored_cells: List[CADFinalCell], variables: List[Int64], index: Int, mut outputs: List[Optional[Real]], mut refined: Dict[String, Int], mut budget: Budget) raises PolyError -> List[Real]:
     var width = sparse._width[P]()
     _allocation[Int](width, budget)
     var indices = List[Int](length=width, fill=-1)
@@ -708,7 +905,21 @@ def _point[P: Copyable & Deinitable](stored_cells: List[CADCell], variables: Lis
         budget.charge(1)
         if entry < 0:
             raise PolyError(PolyErrorKind.DOMAIN, "sample path does not include every axis")
-        result.append(_plain(_copy_witness(stored_cells[entry].sample, budget), budget))
+        if not outputs[entry]:
+            ref sample = stored_cells[entry].sample
+            if sample.rational:
+                outputs[entry] = _output(sample, budget)
+            else:
+                # Cells in different stacks often share a root; its output is
+                # a function of the key alone, so it is refined once.
+                var key = _sample_key(sample, budget)
+                var earlier = refined.get(key)
+                if earlier:
+                    outputs[entry] = outputs[earlier.value()].value().copy()
+                else:
+                    outputs[entry] = _output(sample, budget)
+                    refined[key^] = entry
+        result.append(outputs[entry].value().copy())
     return result^
 
 
@@ -731,7 +942,23 @@ def sample[P: Copyable & Deinitable](result: Solution[P], mut budget: Budget) ra
     if not result.satisfiable():
         budget.charge(1)
         return None
-    return _point[P](result._data[].proof.cells, result._data[].proof.projection.variables, result._data[].proof.witness_cell, budget)
+    ref proof = result._data[].proof
+    var width = sparse._width[P]()
+    _allocation[Int](width, budget)
+    var indices = List[Int](length=width, fill=-1)
+    for k in range(len(proof.variables)):
+        budget.charge(1)
+        var axis = proof.variables[k]
+        if axis >= 0 and axis < Int64(width) and k < len(proof.witness):
+            indices[Int(axis)] = k
+    _allocation[Real](width, budget)
+    var point = List[Real](capacity=width)
+    for entry in indices:
+        budget.charge(1)
+        if entry < 0:
+            raise PolyError(PolyErrorKind.DOMAIN, "sample does not include every axis")
+        point.append(_output(proof.witness[entry], budget))
+    return Optional(point^)
 
 
 def sample[P: Copyable & Deinitable](result: Solution[P], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Optional[List[Real]]:
@@ -942,7 +1169,7 @@ struct _LazardData(Copyable, Movable):
 struct _CoveringData(Copyable, Movable):
     var inputs: List[SparsePoly[QQ]]
     var masks: List[UInt8]
-    var proof: CADCoveringCertificate
+    var proof: CADFinalCertificate
     var embedding: Optional[ArcPointer[_aa._Embedding]]
     var fixed: List[Tuple[Int, Real]]
 
@@ -1098,7 +1325,7 @@ struct Covering[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
     """
     var _data: ArcPointer[_CoveringData]
 
-    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CADCoveringCertificate:
+    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] CADFinalCertificate:
         """Borrow the retained core evidence.
 
         Returns:
@@ -1112,7 +1339,7 @@ struct Covering[P: Copyable & Deinitable]( _Archive, Copyable, Movable):
         Returns:
             True for a witness; verify the claim with cad.check.
         """
-        return self._data[].proof.witness_cell >= 0
+        return self._data[].proof.satisfiable()
 
 
 
@@ -1580,9 +1807,10 @@ def check[P: Copyable & Deinitable](result: Covering[P], mut budget: Budget) rai
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable coefficient domain, or LIMIT/CAPACITY on resource limits.
     """
     ref data = result._data[]
-    if not _cf._check(data.inputs, data.embedding, data.fixed, data.proof.decomposition.projection.variables, sparse._width[P](), budget) or not _cf._check_masks(data.inputs, data.masks, data.embedding, data.fixed, budget):
+    var variables = data.proof.variables(budget)
+    if not _cf._check(data.inputs, data.embedding, data.fixed, variables, sparse._width[P](), budget) or not _cf._check_masks(data.inputs, data.masks, data.embedding, data.fixed, budget):
         return False
-    return _cf._fiber(data.embedding, data.fixed, budget).check(data.inputs, data.masks, data.proof, budget)
+    return check_cad_final(data.inputs, variables, data.masks, data.proof, budget, fixed=_cf._prefix(data.embedding, data.fixed, budget), query=True)
 
 
 def check[P: Copyable & Deinitable](result: Covering[P], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Bool:
@@ -1872,7 +2100,7 @@ def lifting_coefficients[P: Copyable & Deinitable](result: Lazard[P], *, max_ste
     return lifting_coefficients(result, budget)
 
 
-def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, mut budget: Budget, *, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
+def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, mut budget: Budget, *, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
     """Decide sign constraints using a complete CAD decomposition.
 
     The result retains the full decomposition and a witness or conflict covering. Use solve when a selective search is sufficient.
@@ -1885,7 +2113,7 @@ def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, mut budget: Bud
         constraints: A finite iterable of constraints sharing one power shape.
         budget: The shared work allowance for preparation and computation.
         axes: All axes in base-to-top order; defaults to increasing axis order.
-        lazard: Use Lazard projection; False selects McCallum projection.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -1896,7 +2124,7 @@ def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, mut budget: Bud
     return cover[I, P, List[Tuple[Int, Int]]](constraints, budget, axes=axes, lazard=lazard, fixed=List[Tuple[Int, Int]]())
 
 
-def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, *, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
+def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, *, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
     """Decide sign constraints using a complete CAD decomposition.
 
     The result retains the full decomposition and a witness or conflict covering. Use solve when a selective search is sufficient.
@@ -1909,7 +2137,7 @@ def cover[I: Iterable, P: Copyable & Deinitable](constraints: I, *, max_steps: U
         constraints: A finite iterable of constraints sharing one power shape.
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
         axes: All axes in base-to-top order; defaults to increasing axis order.
-        lazard: Use Lazard projection; False selects McCallum projection.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -1938,9 +2166,23 @@ def sample[P: Copyable & Deinitable](result: Covering[P], mut budget: Budget) ra
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable coefficient domain, or LIMIT/CAPACITY on resource limits.
     """
     ref proof = result._data[].proof
-    if proof.witness_cell < 0:
+    var point = proof.sample(budget)
+    if not point:
         return None
-    return Optional(_point[P](proof.decomposition.cells, proof.decomposition.projection.variables, proof.witness_cell, budget))
+    var variables = proof.variables(budget)
+    _allocation[Int](sparse._width[P](), budget)
+    var indices = List[Int](length=sparse._width[P](), fill=-1)
+    for k in range(len(variables)):
+        budget.charge(1)
+        if variables[k] >= 0 and variables[k] < Int64(len(indices)):
+            indices[Int(variables[k])] = k
+    _allocation[Real](len(indices), budget)
+    var output = List[Real](capacity=len(indices))
+    for index in indices:
+        if index < 0 or index >= len(point.value()):
+            raise PolyError(PolyErrorKind.DOMAIN, "incomplete covering sample")
+        output.append(_output(point.value()[index], budget))
+    return Optional(output^)
 
 
 def sample[P: Copyable & Deinitable](result: Covering[P], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Optional[List[Real]]:
@@ -1963,29 +2205,46 @@ def sample[P: Copyable & Deinitable](result: Covering[P], *, max_steps: UInt64 =
     return sample(result, budget)
 
 
-def _describe_cells[P: Copyable & Deinitable](proof: CADCertificate, embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[Int, Real]], mut budget: Budget) raises PolyError -> List[Cell]:
+def _describe_cells[P: Copyable & Deinitable](proof: CADFinalCertificate, embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[Int, Real]], mut budget: Budget) raises PolyError -> List[Cell]:
     var values = List[Cell]()
-    var level = len(proof.projection.variables) - 1
-    for i in range(len(proof.cells)):
+    var stored = proof.cells(budget)
+    var variables = proof.variables(budget)
+    # Each distinct stored sample is refined to the output precision once.
+    _allocation[Optional[Real]](len(stored), budget)
+    var outputs = List[Optional[Real]](length=len(stored), fill=None)
+    var refined = Dict[String, Int]()
+    var level = len(variables) - 1
+    for i in range(len(stored)):
         budget.charge(1)
-        ref cell = proof.cells[i]
-        if cell.level != level or not _aa._on_fiber(cell, embedding, budget, tail=len(fixed)):
+        ref cell = stored[i]
+        if cell.level != level:
             continue
+        if embedding:
+            ref bound = embedding.value()[]
+            if len(cell.signs) != len(bound.originals) + 3 * len(bound.roots) + len(fixed):
+                raise PolyError(PolyErrorKind.DOMAIN, "CAD cell has the wrong sign count")
+            var on_fiber = True
+            for k in range(len(bound.roots)):
+                budget.charge(3)
+                var offset = len(bound.originals) + 3 * k
+                on_fiber = on_fiber and cell.signs[offset] == 0 and cell.signs[offset + 1] == 1 and cell.signs[offset + 2] == 1
+            if not on_fiber:
+                continue
         var dimension = 0
         var cursor = i
-        while cursor >= 0 and proof.cells[cursor].level >= 0:
+        while cursor >= 0 and stored[cursor].level >= 0:
             budget.charge(1)
-            if proof.cells[cursor].position % 2 == 0 and proof.projection.variables[proof.cells[cursor].level] < Int64(sparse._width[P]()):
+            if stored[cursor].position % 2 == 0 and variables[stored[cursor].level] < Int64(sparse._width[P]()):
                 dimension += 1
-            cursor = proof.cells[cursor].parent
+            cursor = stored[cursor].parent
         var count = len(embedding.value()[].originals) if embedding else len(cell.signs) - len(fixed)
         _allocation[Int](count, budget)
         var signs = List[Int](capacity=count)
         for j in range(count):
             budget.charge(1)
-            signs.append(cell.signs[j].relation)
+            signs.append(cell.signs[j])
         _grow(values, budget)
-        values.append(Cell(i, dimension, _point[P](proof.cells, proof.projection.variables, i, budget), signs^))
+        values.append(Cell(i, dimension, _point_cached[P](stored, variables, i, outputs, refined, budget), signs^))
     return values^
 
 
@@ -2005,7 +2264,7 @@ def cells[P: Copyable & Deinitable](result: Covering[P], mut budget: Budget) rai
     Raises:
         PolyError: DOMAIN for incompatible input, ENCODING for invalid transport records where applicable, or LIMIT/CAPACITY on resource limits.
     """
-    return _describe_cells[P](result._data[].proof.decomposition, result._data[].embedding, result._data[].fixed, budget)
+    return _describe_cells[P](result._data[].proof, result._data[].embedding, result._data[].fixed, budget)
 
 
 def cells[P: Copyable & Deinitable](result: Covering[P], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> List[Cell]:
@@ -2029,7 +2288,7 @@ def cells[P: Copyable & Deinitable](result: Covering[P], *, max_steps: UInt64 = 
 
 
 
-def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F: AnyType](polynomials: I, mut budget: Budget, *, fixed: F, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
+def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F: AnyType](polynomials: I, mut budget: Budget, *, fixed: F, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
     """Decompose the requested coordinate slice into sign-invariant cells.
 
     Parameters:
@@ -2043,7 +2302,7 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F
         budget: The shared work allowance for preparation and computation.
         fixed: Distinct axis/value pairs with integer, rational, or exact real-algebraic values.
         axes: All axes in base-to-top order, fixed axes first; empty puts increasing fixed axes first.
-        lazard: Use Lazard projection; False selects the more restricted McCallum route.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -2058,12 +2317,14 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F
     swap(inputs, prepared.inputs)
     _cf._augment(inputs, bindings, budget)
     var variables = _aa._axes(original_axes, prepared.embedding, budget)
-    var proof = _cf._fiber(prepared.embedding, bindings, budget).decompose(inputs, variables, budget, lazard=lazard)
+    if not _cf._check(inputs, prepared.embedding, bindings, variables, sparse._width[P](), budget):
+        raise PolyError(PolyErrorKind.DOMAIN, "CAD input binding failed verification")
+    var proof = cad_final(inputs, variables, budget, fixed=_cf._prefix(prepared.embedding, bindings, budget), lazard=lazard)
     _allocation[_DecompositionData](1, budget)
     return Decomposition[P](ArcPointer(_DecompositionData(inputs^, proof^, prepared.embedding.copy(), bindings^)))
 
 
-def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F: AnyType](polynomials: I, *, fixed: F, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
+def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F: AnyType](polynomials: I, *, fixed: F, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Decomposition[P] where _Element[_Nested[I]] == Tuple[P, C]:
     """Decompose the requested coordinate slice into sign-invariant cells.
 
     Parameters:
@@ -2077,7 +2338,7 @@ def decompose[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, F
         fixed: Distinct axis/value pairs with integer, rational, or exact real-algebraic values.
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
         axes: All axes in base-to-top order, fixed axes first; empty puts increasing fixed axes first.
-        lazard: Use Lazard projection; False selects the more restricted McCallum route.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -2123,7 +2384,7 @@ def solve[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, mut
     _cf._augment(inputs, bindings, budget)
     _cf._masks(masks, bindings, budget)
     var variables = _aa._axes(original_axes, prepared.problem.embedding, budget)
-    var proof = _cf._fiber(prepared.problem.embedding, bindings, budget).solve(inputs, masks, variables, budget, lazard=lazard)
+    var proof = _cf._fiber(prepared.problem.embedding, bindings, budget).search(inputs, masks, variables, budget, lazard=lazard)
     _allocation[_SolutionData](1, budget)
     return Solution[P](ArcPointer(_SolutionData(inputs^, masks^, proof^, prepared.problem.embedding.copy(), bindings^)))
 
@@ -2156,7 +2417,7 @@ def solve[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, *, 
     return solve[I, P, F](constraints, budget, axes=axes, lazard=lazard, fixed=fixed)
 
 
-def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, mut budget: Budget, *, fixed: F, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
+def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, mut budget: Budget, *, fixed: F, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
     """Decide sign constraints using a complete decomposition of the requested slice.
 
     The result retains the full decomposition and a witness or conflict covering. Use solve when a selective search is sufficient.
@@ -2171,7 +2432,7 @@ def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, mut
         budget: The shared work allowance for preparation and computation.
         fixed: Distinct axis/value pairs with integer, rational, or exact real-algebraic values.
         axes: All axes in base-to-top order, fixed axes first; empty puts increasing fixed axes first.
-        lazard: Use Lazard projection; False selects McCallum projection.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.
@@ -2189,12 +2450,14 @@ def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, mut
     _cf._augment(inputs, bindings, budget)
     _cf._masks(masks, bindings, budget)
     var variables = _aa._axes(original_axes, prepared.problem.embedding, budget)
-    var proof = _cf._fiber(prepared.problem.embedding, bindings, budget).cover(inputs, masks, variables, budget, lazard=lazard)
+    if not _cf._check(inputs, prepared.problem.embedding, bindings, variables, sparse._width[P](), budget) or not _cf._check_masks(inputs, masks, prepared.problem.embedding, bindings, budget):
+        raise PolyError(PolyErrorKind.DOMAIN, "CAD covering input binding failed verification")
+    var proof = cad_final(inputs, variables, budget, fixed=_cf._prefix(prepared.problem.embedding, bindings, budget), masks=masks, query=True, lazard=lazard)
     _allocation[_CoveringData](1, budget)
     return Covering[P](ArcPointer(_CoveringData(inputs^, masks^, proof^, prepared.problem.embedding.copy(), bindings^)))
 
 
-def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, *, fixed: F, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Bool = True) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
+def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, *, fixed: F, max_steps: UInt64 = UInt64.MAX, axes: List[Int] = List[Int](), lazard: Optional[Bool] = None) raises PolyError -> Covering[P] where _Element[I] == Constraint[P]:
     """Decide sign constraints using a complete decomposition of the requested slice.
 
     The result retains the full decomposition and a witness or conflict covering. Use solve when a selective search is sufficient.
@@ -2209,7 +2472,7 @@ def cover[I: Iterable, P: Copyable & Deinitable, F: AnyType](constraints: I, *, 
         fixed: Distinct axis/value pairs with integer, rational, or exact real-algebraic values.
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
         axes: All axes in base-to-top order, fixed axes first; empty puts increasing fixed axes first.
-        lazard: Use Lazard projection; False selects McCallum projection.
+        lazard: None selects Revision 15 with interval lifting and complete final verification; True requests plain Lazard, False uses the checked legacy McCallum backend.
 
     Returns:
         The computed result, with its evidence retained.

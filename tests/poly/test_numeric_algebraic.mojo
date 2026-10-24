@@ -1,7 +1,7 @@
 """Certainly rounded conversions agree with independent square-root arithmetic."""
 from poly import dense, sparse, algebraic, coefficients
 from apn_mojo import Integer, Float, Ball, BallContext, ArithmeticContext, ComplexContext, FloatFormat, Rational, RoundingMode, sqrt, contains
-from polynomials import Budget, PolyErrorKind, sturm_sequence, QQ
+from polynomials import Budget, PolyErrorKind, QQ
 from std.testing import assert_equal, assert_true
 
 
@@ -40,7 +40,6 @@ def main() raises:
     var budget = Budget()
     var witness = a.witness().copy()
     witness.polynomial = dense.to_core([Rational(-1), Rational(1), Rational(-1), Rational(1)])
-    witness.sequence = sturm_sequence(witness.polynomial, budget)
     witness.low = QQ(Rational(0))
     witness.high = QQ(Rational(2))
     var exact_one = algebraic.asreal(witness)

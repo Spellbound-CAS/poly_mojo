@@ -1,6 +1,6 @@
 """Hand-computed algebraic identities and fail-closed boundary cases."""
 from apn_mojo import Rational
-from polynomials import Budget, PolyErrorKind, QQ, NoContext, DensePoly, sturm_sequence
+from polynomials import Budget, PolyErrorKind, QQ, NoContext, DensePoly
 from polynomials._algebraic import _root, _rational, _compare, _sign, _roots, _copy_real, _comparison
 from support.algebraic import _add, _mul, _neg, _inverse, _evaluate, _roots_algebraic, _roots_at
 from polynomials.algebraic_types import RealAlgebraic as _Real, _check_real, _check_comparison
@@ -47,14 +47,17 @@ def main() raises:
     ordering.relation = 1
     c.check(not _check_comparison(a, b, ordering, work), "reversed inequality rejected")
     var malformed = _copy_real(a, work)
-    malformed.polynomial.coefficients[0] = q(-3)
+    # x^2 - 9 has no root in the interval; x^2 - 3 would witness sqrt(3).
+    malformed.polynomial.coefficients[0] = q(-9)
     c.check(not _check_real(malformed, work), "corrupted defining polynomial rejected")
     var nonminimal_poly = f.mul(poly([-3, 1], work), work)
-    var nonminimal = _Real(nonminimal_poly.copy(), q(1), q(2), sturm_sequence(nonminimal_poly, work), False)
+    var nonminimal = _Real(nonminimal_poly.copy(), q(1), q(2), False)
     c.check(_check_real(nonminimal, work), "valid nonminimal defining polynomial")
     c.check(_check_comparison(a, nonminimal, _comparison(a, nonminimal, work), work), "shared-root equality with distinct definitions")
-    var zero_poly = poly([0, 0, 1], work)
-    var nonminimal_zero = _Real(zero_poly.copy(), q(-1), q(1), sturm_sequence(zero_poly, work), False)
+    # x^3 - 4x has the simple root 0 in (-1, 1); x^2 would repeat it.
+    var zero_poly = poly([0, -4, 0, 1], work)
+    c.check(not _check_real(_Real(poly([0, 0, 1], work), q(-1), q(1), False), work), "repeated root rejected as a witness")
+    var nonminimal_zero = _Real(zero_poly.copy(), q(-1), q(1), False)
     c.check(_check_comparison(zero, nonminimal_zero, _comparison(zero, nonminimal_zero, work), work), "rational equality with an interval witness")
     c.check(_check_comparison(nonminimal_zero, a, _comparison(nonminimal_zero, a, work), work), "nonminimal rational refinement retains definition")
     var negative = _root(f, q(-2), q(-1), work)

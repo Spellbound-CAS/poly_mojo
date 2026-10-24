@@ -1,13 +1,15 @@
 """Depth-first CAD witnesses with independent incremental coverage checking."""
-from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum
-from .coefficients import QQ
+from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum, _product
+from .coefficients import QQ, NoContext
 from .sparse import SparsePoly
-from .algebraic_types import RealAlgebraic, AlgebraicComparisonCertificate, _copy_real
+from .algebraic_types import RealAlgebraic, AlgebraicComparisonCertificate, _copy_real, _rational
 from .algebraic_specialization import AlgebraicPolynomialEvaluation
-from .cad_types import CADStackCertificate
+from .cad_types import CADStackCertificate, CADSignWitness, CADCell
 from .cad_projection import CADProjectionCertificate, cad_projection, check_cad_projection, _empty
-from ._cad_lifting import _stack, _check_stack
-from ._cad_common import _signs, _check_signs
+from ._cad_lifting import _stack_cached, _check_stack, _sample_lifting
+from ._cad_common import _check_signs, _signs_witnessed, _check_cell_signs
+from ._algebraic import _NormalizationCache, _Frame
+from ._algebraic_filter import _child_frame, _installed
 from ._cad_fiber_common import _validate_fixed, _copy_fixed, _selection
 
 
@@ -20,6 +22,8 @@ struct CADStreamEvent(Copyable, Movable):
     """Input evaluations at a terminal sample, empty for a stack event."""
     var signs: List[AlgebraicComparisonCertificate]
     """Terminal input signs, empty for a stack event."""
+    var witnesses: List[CADSignWitness]
+    """One sign proof per input at a terminal sample, or empty when every sign has an exact evaluation."""
 
 
 @fieldwise_init
@@ -151,20 +155,62 @@ def _cad_to[S: CADSink](inputs: List[SparsePoly[QQ]], variables: List[Int64], fi
     var traversal = _CADTraversal()
     traversal.fixed = _copy_fixed(fixed, budget)
     var receipt = CADStreamReceipt(0, 0)
+    # frames[k] writes the first k path coordinates in one generator; positions
+    # records the stack sample each extension used, and liftings[k] the lifting
+    # polynomial of each root of the level-k stack when frames[k] has a generator.
+    var frames: List[_Frame] = [_Frame()]
+    var positions = List[Int]()
+    var liftings = List[List[Optional[SparsePoly[QQ]]]]()
     while not traversal.done:
         budget.charge(1)
         var level = len(traversal.point)
+        var kept = 0
+        while kept < len(positions) and kept < level and positions[kept] == traversal.positions[kept]:
+            kept += 1
+        while len(positions) > kept:
+            _ = positions.pop()
+            _ = frames.pop()
+        for j in range(kept, level):
+            budget.charge(1)
+            var position = traversal.positions[j]
+            var lifting: Optional[SparsePoly[QQ]] = None
+            if position % 2 == 1 and j < len(liftings) and position // 2 < len(liftings[j]) and liftings[j][position // 2]:
+                lifting = liftings[j][position // 2].value()._copy(budget)
+            # As in the retained decomposition: a terminal cell whose sample
+            # would be a second irrational coordinate is signed by its own
+            # zero proofs, and needs no frame.
+            var irrational = 0
+            for e in range(j):
+                if not traversal.point[e][1].rational:
+                    irrational += 1
+            if frames[j].generator and not traversal.point[j][1].rational and j + 1 == len(variables) and irrational < 2:
+                var skipped = _Frame()
+                skipped.valid = False
+                frames.append(skipped^)
+            else:
+                frames.append(_child_frame(frames[j], variables[j], lifting, traversal.point[j][1], budget, terminal=j + 1 == len(variables)))
+            positions.append(position)
+        var cache = _NormalizationCache()
+        cache.frame = _installed(frames[level], traversal.point, budget)
         if level < len(variables):
-            var stack = _stack(projection, level - 1, level, traversal.point, traversal.dimension, None, budget)
+            var stack = _stack_cached(projection, level - 1, level, traversal.point, traversal.dimension, None, cache, budget)
+            var roots = List[Optional[SparsePoly[QQ]]]()
+            if frames[level].valid and frames[level].generator:
+                for gap in range(len(stack.roots)):
+                    roots.append(_sample_lifting(projection, stack, traversal.point, _sum(_product(2, gap), 1), budget))
+            while len(liftings) > level:
+                _ = liftings.pop()
+            liftings.append(roots^)
             traversal.enter(stack, variables, budget)
             receipt.stacks = _sum(receipt.stacks, 1)
-            sink.write(CADStreamEvent(stack^, List[AlgebraicPolynomialEvaluation](), List[AlgebraicComparisonCertificate]()), budget)
+            sink.write(CADStreamEvent(stack^, List[AlgebraicPolynomialEvaluation](), List[AlgebraicComparisonCertificate](), List[CADSignWitness]()), budget)
         else:
             var evaluations = List[AlgebraicPolynomialEvaluation]()
             var signs = List[AlgebraicComparisonCertificate]()
-            _signs(inputs, traversal.point, evaluations, signs, budget)
+            var witnesses = List[CADSignWitness]()
+            _signs_witnessed(inputs, traversal.point, evaluations, signs, witnesses, cache, budget)
             receipt.cells = _sum(receipt.cells, 1)
-            sink.write(CADStreamEvent(None, evaluations^, signs^), budget)
+            sink.write(CADStreamEvent(None, evaluations^, signs^, witnesses^), budget)
             traversal.advance(variables, budget)
     return receipt^
 
@@ -255,13 +301,22 @@ struct CADStreamChecker(CADSink, Movable):
             ref projection = self._projection.value()
             var level = len(self._traversal.point)
             if level < len(projection.variables):
-                if not event.stack or len(event.evaluations) or len(event.signs) or not _check_stack(projection, level - 1, level, self._traversal.point, self._traversal.dimension, event.stack.value(), budget):
+                if not event.stack or len(event.evaluations) or len(event.signs) or len(event.witnesses) or not _check_stack(projection, level - 1, level, self._traversal.point, self._traversal.dimension, event.stack.value(), budget):
                     return False
                 self._traversal.enter(event.stack.value(), projection.variables, budget)
                 self._stacks = _sum(self._stacks, 1)
             else:
-                if event.stack or not _check_signs(self._inputs, self._traversal.point, event.evaluations, event.signs, budget):
+                if event.stack:
                     return False
+                if len(event.witnesses) == 0:
+                    if not _check_signs(self._inputs, self._traversal.point, event.evaluations, event.signs, budget):
+                        return False
+                else:
+                    # The cell's level and sample are not read by the sign check.
+                    var sample = self._traversal.point[level - 1][1].copy() if level else _rational(QQ.zero(NoContext()), budget)
+                    var cell = CADCell(-1, level - 1, 0, sample^, event.evaluations.copy(), event.signs.copy(), event.witnesses.copy())
+                    if not _check_cell_signs(self._inputs, self._traversal.point, cell, budget):
+                        return False
                 self._traversal.advance(projection.variables, budget)
                 self._cells = _sum(self._cells, 1)
         except e:

@@ -14,28 +14,28 @@ from support.check import Checker
 def witnesses(mut c: Checker, mut work: Budget) raises:
     var f = DensePoly[QQ].from_sparse(parse_polynomial("x0^2 - 2", MonomialOrder(), work), work)
     var value = real_root(f, QQ(Rational(1)), QQ(Rational(2)), work)
-    c.check(_check_real(value, work), "borrowed Sturm evidence accepted")
+    c.check(_check_real(value, work), "borrowed Descartes evidence accepted")
     var before = value.copy()
     for kind in range(5):
         var bad = value.copy()
         if kind == 0:
-            bad.sequence.quotients[0].coefficients[0] = QQ(Rational(3))
+            bad.low = QQ(Rational(-2))
         elif kind == 1:
             bad.low = QQ(Rational(2))
         elif kind == 2:
             bad.high = QQ(Rational(3))
             bad.low = QQ(Rational(2))
         elif kind == 3:
-            _ = bad.sequence.polynomials.pop()
+            bad.polynomial.coefficients[0] = QQ(Rational(-1))
         else:
-            bad.sequence.polynomials[0].coefficients[0] = QQ(Rational(-3))
+            bad.polynomial.coefficients[0] = QQ(Rational(-9))
         c.check(not _check_real(bad, work), "borrowed checker rejects malformed witness")
     var tiny = Budget(0)
     try:
         _ = _check_real(value, tiny)
         c.check(False, "borrowed check ignored budget")
     except e:
-        c.check(e.kind == PolyErrorKind.LIMIT and value.polynomial == before.polynomial and value.sequence.polynomials == before.sequence.polynomials and value.sequence.quotients == before.sequence.quotients, "budget failure preserves witness")
+        c.check(e.kind == PolyErrorKind.LIMIT and value.polynomial == before.polynomial and value.low == before.low and value.high == before.high, "budget failure preserves witness")
     var point: List[Tuple[Int64, RealAlgebraic]] = [(Int64(9), value.copy()), (Int64(2), value.copy()), (Int64(5), real_rational(QQ(Rational(3)), work))]
     var prepared = _prepare_point(point, work)
     c.check(prepared.index(2, work) == 1 and prepared.index(9, work) == 0 and prepared.index(5, work) == 2 and prepared.index(7, work) == -1, "sorted index retains original coordinate bindings")

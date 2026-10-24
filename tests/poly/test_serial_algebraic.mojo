@@ -1,15 +1,23 @@
 """Exact algebraic values and original witnesses survive dense/sparse text round trips."""
 from poly import dense, sparse, algebraic, coefficients
-from polynomials import Budget, QQ, sturm_sequence
+from polynomials import Budget, QQ, PolyError, PolyErrorKind
 from apn_mojo import Rational
 from std.testing import assert_equal, assert_true
 
 
 def main() raises:
-    var fixture = "POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n0\n1\n1\n2\n2\n2\n-2\n1\n0\n0\n"
+    # Value tag 2 + rational flag, then the endpoints and the polynomial.
+    var fixture = "POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n0\n1\n3\n2\n2\n2\n-2\n1\n"
     var hand = dense.loads[algebraic.Real](fixture)
     assert_true(hand[0] == algebraic.asreal(2))
     assert_equal(dense.dumps(hand), fixture)
+    # Records written before Descartes witnesses carried Sturm sequences.
+    var stale = False
+    try:
+        _ = dense.loads[algebraic.Real]("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n0\n1\n1\n2\n2\n2\n-2\n1\n0\n0\n")
+    except e:
+        stale = e.kind == PolyErrorKind.ENCODING
+    assert_true(stale)
     var a = dense.root_between([-2, 0, 1], 1, 2)
     var p = dense.asarray(coefficients((a.copy(), 0, Rational(1, 3), 1)))
     var text = dense.dumps(p)
@@ -17,7 +25,8 @@ def main() raises:
     assert_equal(copy.to_list(), p.to_list())
     assert_equal(dense.dumps(copy), text)
     assert_true(algebraic.check(copy[0]))
-    assert_equal(copy[0].witness().sequence.polynomials[0].coefficients, a.witness().sequence.polynomials[0].coefficients)
+    assert_equal(copy[0].witness().polynomial.coefficients, a.witness().polynomial.coefficients)
+    assert_true(copy[0].witness().low == a.witness().low and copy[0].witness().high == a.witness().high)
     var z = algebraic.ascomplex(a, dense.root_between([-3, 0, 1], 1, 2))
     var q = dense.asarray(coefficients((z.copy(), 2, Rational(1, 7))))
     var qcopy = dense.loads[algebraic.Complex](dense.dumps(q))
@@ -39,12 +48,10 @@ def main() raises:
     var witness = a.witness().copy()
     var budget = Budget()
     witness.polynomial = witness.polynomial.mul(dense.to_core([Rational(-3), Rational(1)]), budget)
-    witness.sequence = sturm_sequence(witness.polynomial, budget)
     var nonminimal = algebraic.asreal(witness)
     var restored = dense.loads[algebraic.Real](dense.dumps([nonminimal.copy()]))[0]
     assert_true(restored == a)
     assert_equal(restored.witness().polynomial.coefficients, witness.polynomial.coefficients)
-    assert_equal(restored.witness().sequence.quotients[0].coefficients, witness.sequence.quotients[0].coefficients)
     assert_equal(dense.dumps([restored.copy()]), dense.dumps([nonminimal.copy()]))
     # Loading restores value evidence; it does not invent arithmetic history.
     var arithmetic = algebraic.add(a, 1)

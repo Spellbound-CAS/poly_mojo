@@ -16,7 +16,7 @@ from polynomials import algebraic_multiply, algebraic_inverse, refine as _refine
 from ._common import _Kind, _convert, _allocation, _charge_size
 
 
-from ._algebraic_value import Real, Complex, _ValueData, _HornerData, _SparseEvaluationData, _plain, _make, _arithmetic, _copy_witness, _same_witness
+from ._algebraic_value import Real, Complex, _ValueData, _HornerData, _SparseEvaluationData, _plain, _normal, _make, _arithmetic, _copy_witness, _same_witness
 
 
 def asreal[T: Copyable & Deinitable](value: T, mut budget: Budget) raises PolyError -> Real:

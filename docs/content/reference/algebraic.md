@@ -1,14 +1,20 @@
 # Exact real algebraic numbers
 
 For the array workflow, see [algebraic coefficients](../tutorial/algebraic-coefficients.md).
-Values are exact real roots of monic rational polynomials with a unique-root
-Sturm witness. Factories choose irreducible definitions and represent rationals
-by a linear polynomial and equal endpoints. Checkers also accept nonminimal
-definitions; they do not assert irreducibility.
+Values are exact real roots of monic rational polynomials, isolated by
+Descartes' rule of signs: the polynomial changes sign across the open interval
+and its Descartes bound there is 1, which also excludes a repeated root inside.
+Factories choose irreducible definitions, narrowing an interval until the bound
+certifies it, and represent rationals by a linear polynomial and equal
+endpoints. Checkers also accept nonminimal definitions whose root in the
+interval is simple; they do not assert irreducibility. Comparisons prove
+equality by a common factor with a single sign-changing root, Descartes bound
+1, on an interval inside both witnesses.
 
 Arithmetic returns certificates whose `value` is the answer. Binary operations
 retain a resultant ideal identity, a nonzero annihilator, operand refinements,
-and a root-count witness selecting the intended conjugate. Unary operations
+and a Descartes window selecting the intended conjugate: the annihilator's
+only root there is the result's. Unary operations
 verify the direct polynomial transformation. Independent checkers use those
 identities and interval bounds without factoring, computing gcds or isolating
 roots. Negation and inversion pass `None` as the checker's second operand.
@@ -18,6 +24,10 @@ roots. Negation and inversion pass `None` as the checker's second operand.
 distinct real root. It eliminates independent coefficient variables to obtain
 a nonzero rational annihilator, accounts for **all** its real roots, and
 filters each candidate by certified evaluation of the original polynomial.
+The annihilator's real roots are counted by an `AlgebraicDescartesCertificate`,
+a complete Descartes isolation that `check_algebraic_descartes` verifies. With
+rational coefficients the annihilator is the polynomial itself, and each
+candidate is accepted by its definition dividing it, without evaluation.
 Algebraically dependent coefficients are valid. Constants have no roots;
 the zero polynomial raises `DOMAIN` because it has no finite root list.
 
@@ -37,9 +47,13 @@ on failure. See the [extension mathematics](../theory/extensions.md).
 
 <!-- api: src/polynomials/algebraic_types.mojo AlgebraicComparisonCertificate -->
 
+<!-- api: src/polynomials/descartes.mojo AlgebraicDescartesCertificate -->
+
 <!-- api: src/polynomials/algebraic_evaluation.mojo AlgebraicEvaluationCertificate -->
 
 <!-- api: src/polynomials/algebraic_specialization.mojo AlgebraicPolynomialEvaluation -->
+
+<!-- api: src/polynomials/algebraic_roots.mojo AlgebraicRootFilter -->
 
 <!-- api: src/polynomials/algebraic_specialization.mojo AlgebraicRootsAtCertificate -->
 
@@ -74,6 +88,8 @@ on failure. See the [extension mathematics](../theory/extensions.md).
 <!-- api: src/polynomials/algebraic.mojo algebraic_subtract -->
 
 <!-- api: src/polynomials/algebraic_arithmetic.mojo check_algebraic_arithmetic -->
+
+<!-- api: src/polynomials/descartes.mojo check_algebraic_descartes -->
 
 <!-- api: src/polynomials/algebraic.mojo check_algebraic_comparison -->
 

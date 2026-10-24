@@ -117,6 +117,6 @@ def main() raises:
     cell._data[].variables[0] = 0
     assert_false(cad.check(cell))
     var full = cad.cover([cad.positive([(1, 1)])])
-    full._data[].proof.witness_cell = -1
+    full._data[].proof._data[].compact.value().satisfiable = False
     assert_false(cad.check(full))
     print("array parity boundary checks passed")

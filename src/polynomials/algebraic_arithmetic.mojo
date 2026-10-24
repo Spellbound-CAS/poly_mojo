@@ -3,7 +3,10 @@ from std.collections import Optional
 from .errors import Budget, PolyError
 from .coefficients import QQ, NoContext
 from .dense import DensePoly
-from .certificates import ResultantResult, RootCountCertificate, check_root_count, check_resultant_identity, _dense_equal, _equal
+from .certificates import ResultantResult, check_resultant_identity, _dense_equal, _equal
+from .roots import RootInterval
+from .descartes import _one_root, _rational_bound, _strip_factor
+from ._root_ops import _sign_at
 from .algebraic_types import RealAlgebraic, _check_real
 from ._root_ops import _compare as _compare_q
 from ._algebraic_ops import _embed, _binary_definitions, _unary_definition, _operation_bounds, _rational_operation
@@ -30,8 +33,13 @@ struct AlgebraicArithmeticCertificate(Copyable, Movable, Writable):
     """Multiplier expressing the annihilator as a multiple of the result definition."""
     var elimination: Optional[ResultantResult[QQ]]
     """The binary elimination identity, absent for direct rational and unary cases."""
-    var selection: Optional[RootCountCertificate]
-    """One annihilator root enclosing the operand-image bounds and result interval."""
+    var selection: Optional[RootInterval]
+    """An open window holding the operand-image bounds and the result interval, where the annihilator has a single root.
+
+    The annihilator is nonzero at its ends; the result's polynomial p changes
+    sign across it with Descartes bound 1; and `value_factor` with every
+    factor p divided out, q, has Descartes bound 0 on it.
+    """
 
 
 def _representative(value: RealAlgebraic, original: RealAlgebraic, multiplier: DensePoly[QQ], mut budget: Budget) raises PolyError -> Bool:
@@ -91,8 +99,16 @@ def check_algebraic_arithmetic(a: RealAlgebraic, b: Optional[RealAlgebraic], cer
             return False
     if not _dense_equal(proof.value.polynomial.mul(proof.value_factor, budget), proof.annihilator, budget):
         return False
+    # The annihilator is p^k q with p not dividing q, so its roots in the
+    # window are p's single root there and q's, of which there are none.
     ref selection = proof.selection.value()
-    if selection.count != 1 or not check_root_count(proof.annihilator, selection, budget):
+    ref p = proof.value.polynomial
+    if _sign_at(proof.annihilator, selection.low, budget) == 0 or _sign_at(proof.annihilator, selection.high, budget) == 0:
+        return False
+    if not _one_root(p, selection.low, selection.high, budget):
+        return False
+    var q = _strip_factor(proof.value_factor, p, budget)
+    if q.is_zero() or _rational_bound(q, selection.low, selection.high, 1, budget) != 0:
         return False
     var bounds = _operation_bounds(proof.left, proof.right, op, budget)
-    return _compare_q(selection.a, bounds[0], budget) <= 0 and _compare_q(bounds[1], selection.b, budget) <= 0 and _compare_q(selection.a, proof.value.low, budget) <= 0 and _compare_q(proof.value.high, selection.b, budget) <= 0
+    return _compare_q(selection.low, bounds[0], budget) <= 0 and _compare_q(bounds[1], selection.high, budget) <= 0 and _compare_q(selection.low, proof.value.low, budget) <= 0 and _compare_q(proof.value.high, selection.high, budget) <= 0

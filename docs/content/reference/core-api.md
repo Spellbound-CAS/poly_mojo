@@ -5,7 +5,7 @@ domains, and return immutable arrays and checkable results. They are built on
 the core package, `polynomials`, which provides the mutable containers,
 coefficient rings, algorithms, and certificate checkers. Use the core API when
 you extend the library, add an algorithm, or integrate with a system that
-consumes [Contract P](contract-p.md). Both packages share `Budget`, `PolyError`,
+uses the [core compatibility contract](contract-p.md). Both packages share `Budget`, `PolyError`,
 and the option types such as `NumericOptions`.
 
 | Topic | Reference |
@@ -25,9 +25,8 @@ Exact operations are generic over a coefficient ring or field where supported.
 Numerical operations take explicit arithmetic contexts. Most computational
 calls accept a mutable `Budget` and raise `PolyError`; see
 [errors and work limits](../guides/errors.md). The exact public surface is
-recorded in [Contract P](contract-p.md). The numerical declarations have a
-separate snapshot. Historical P1–P5 labels in source paths name implementation
-groups; they are not steps a user needs to complete.
+described by the [compatibility contract](contract-p.md). Numerical operations
+also follow the [precision and certificate guarantees](../spec/numerical.md).
 
 ## Exchange exact arrays with core values
 

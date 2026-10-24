@@ -1,15 +1,17 @@
 """Hand-checked slices, all-fixed points, and original-axis sample semantics."""
 from poly import cad, dense, sparse, algebraic
 from apn_mojo import Rational
+from polynomials import Budget
 from std.testing import assert_true, assert_false, assert_equal
 
 
 def main() raises:
+    var budget = Budget()
     # x - y, restricted to y=2: three cells on the x line.
     var p = [((1, 0), 1), ((0, 1), -1)]
     var result = cad.decompose([p.copy()], fixed=[(1, 2)])
     assert_true(cad.check(result))
-    assert_equal(result.evidence().projection.variables, [Int64(1), Int64(0)])
+    assert_equal(result.evidence().variables(budget), [Int64(1), Int64(0)])
     var cells = cad.cells(result)
     assert_equal(len(cells), 3)
     for i in range(3):

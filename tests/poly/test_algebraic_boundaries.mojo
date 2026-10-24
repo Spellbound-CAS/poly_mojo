@@ -1,6 +1,6 @@
 """Algebraic witness normalization, immutable ownership, and single-pass input budgets."""
 from apn_mojo import Rational
-from polynomials import Budget, PolyErrorKind, QQ, sturm_sequence
+from polynomials import Budget, PolyErrorKind, QQ
 from poly import dense, sparse, algebraic
 from std.iter import IterableOwned, Iterator, StopIteration
 from std.memory import ArcPointer
@@ -38,7 +38,6 @@ def main() raises:
     var budget = Budget()
     var multiplier = dense.to_core([Rational(-3), Rational(1)])
     witness.polynomial = witness.polynomial.mul(multiplier, budget)
-    witness.sequence = sturm_sequence(witness.polynomial, budget)
     var restored = algebraic.asreal(witness)
     assert_true(restored == a)
     assert_true(algebraic.check(restored))

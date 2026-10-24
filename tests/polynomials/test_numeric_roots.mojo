@@ -8,6 +8,7 @@ from polynomials.numeric_options import NumericOptions, NumericOutcome
 from polynomials.numeric_real_roots import real_roots_exact, real_roots_numeric, check_real_roots_exact, check_real_roots_numeric
 from polynomials.numeric_complex_roots import complex_roots_exact, complex_roots_numeric, check_complex_roots_exact, check_complex_roots_numeric
 from polynomials.numeric_real_roots import _real_predicate
+from polynomials import DescartesLeaf, descartes_intervals
 from support.check import Checker
 
 
@@ -18,25 +19,23 @@ def main() raises:
     var p = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(-2)), QQ(Rational(0)), QQ(Rational(1))], b)
     var real = real_roots_exact(p, options, b, complete_only=True)
     c.check(real.complete and real.accurate and real.isolated and check_real_roots_exact(p, real, options, b), "sqrt two complete real isolation")
-    var count = 0
-    for cell in real.cells:
-        count += cell.count
-    c.check(count == 2, "two distinct real square roots")
+    c.check(len(descartes_intervals(real.certificate, b)) == 2, "two distinct real square roots")
     var bad_real = real.copy()
-    bad_real.cells[0].count += 1
-    c.check(not check_real_roots_exact(p, bad_real, options, b), "forged Sturm count rejected")
+    bad_real.certificate.leaves[0].variations += 1
+    c.check(not check_real_roots_exact(p, bad_real, options, b), "forged Descartes bound rejected")
     bad_real = real.copy()
-    _ = bad_real.cells.pop()
-    c.check(not check_real_roots_exact(p, bad_real, options, b), "missing real cover cell rejected")
+    _ = bad_real.certificate.leaves.pop()
+    c.check(not check_real_roots_exact(p, bad_real, options, b), "missing real cover leaf rejected")
     bad_real = real.copy()
-    bad_real.cells[0].interval.real_low = QQ(Rational(-99))
+    bad_real.certificate.leaves[0].low = QQ(Rational(-99))
+    bad_real.certificate.low = QQ(Rational(-99))
     c.check(not check_real_roots_exact(p, bad_real, options, b), "incorrect global bound rejected")
+    bad_real = real.copy()
+    bad_real.bound_exponent -= 1
+    c.check(not check_real_roots_exact(p, bad_real, options, b), "bound exponent below the root bound rejected")
     var repeated = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(0)), QQ(Rational(1)), QQ(Rational(-2)), QQ(Rational(1))], b)
     var repeated_real = real_roots_exact(repeated, options, b, complete_only=True)
-    count = 0
-    for cell in repeated_real.cells:
-        count += cell.count
-    c.check(count == 2 and check_real_roots_exact(repeated, repeated_real, options, b), "zero, boundary and repeated real roots counted distinctly")
+    c.check(len(descartes_intervals(repeated_real.certificate, b)) == 2 and check_real_roots_exact(repeated, repeated_real, options, b), "zero, boundary and repeated real roots counted distinctly")
     var fp = NumericDensePoly[FloatDomain].from_coefficients(0, [Float(-2), Float(0), Float(1)], b)
     var fr = real_roots_numeric(fp, options, b, complete_only=True)
     c.check(check_real_roots_numeric(fp, fr, options, b) and Bool(fr.sequence), "stored binary points take exact Sturm path")
@@ -139,7 +138,8 @@ def main() raises:
     c.check(_real_predicate(unit, images, b)[0] == -1, "Newton boundary contact is inconclusive")
     var relative_only = NumericOptions(absolute_bits=0, relative_bits=8, max_subdivisions=8)
     var at_zero = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(0)), QQ(Rational(1))], b)
-    c.check(real_roots_exact(at_zero, relative_only, b).outcome == NumericOutcome.SUBDIVISION_LIMIT, "relative-only tolerance near zero is inconclusive")
+    var zero_root = real_roots_exact(at_zero, relative_only, b)
+    c.check(zero_root.outcome == NumericOutcome.SUCCESS and len(zero_root.certificate.exact_roots) == 1, "a root at zero is exact, so relative accuracy holds")
     var float_complex = complex_roots_numeric(fp, options, b, complete_only=True)
     c.check(check_complex_roots_numeric(fp, float_complex, options, b) and len(float_complex.regions) == 2, "Float coefficients embedded as exact stored complex points")
     var ball_complex = complex_roots_numeric(family, options, b, complete_only=True)

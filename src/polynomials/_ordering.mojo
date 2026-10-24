@@ -19,6 +19,16 @@ def _stable_indices[A: _IndexedOrder](items: List[A.Item], order: MonomialOrder,
     for i in range(n):
         budget.charge(1)
         indices.append(i)
+    # Items already in order are their own stable sort; a descent ends the
+    # check after as many comparisons as it took to find it.
+    var ordered = True
+    for i in range(1, n):
+        budget.charge(1)
+        if A.compare(items, i - 1, i, order, budget) > 0:
+            ordered = False
+            break
+    if ordered:
+        return indices^
     var width = 1
     while width < n:
         var start = 0

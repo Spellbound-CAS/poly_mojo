@@ -1,7 +1,7 @@
 """Complete exact values retain domains, formal metadata, and valid witnesses."""
 from std.testing import assert_equal, assert_true
 from apn_mojo import Integer, Rational, ExactComplex
-from polynomials import Budget, sturm_sequence
+from polynomials import Budget
 from poly import io, dense, sparse, series, basis, rational, algebraic, modint, coefficients
 
 
@@ -77,7 +77,6 @@ def main() raises:
     var witness = root.witness().copy()
     var work = Budget()
     witness.polynomial = witness.polynomial.mul(dense.to_core([Rational(-3), Rational(1)]), work)
-    witness.sequence = sturm_sequence(witness.polynomial, work)
     var nonminimal = algebraic.asreal(witness)
     same(nonminimal)
     same(series.asarray([nonminimal.copy()], order=3))

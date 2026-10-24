@@ -152,6 +152,16 @@ def _work(a: Int, b: Int, quadratic: Bool, mut budget: Budget) raises PolyError:
         n = _product(n, n)
     _charge_size(n, budget)
 
+def _submul(mut r: ZZ, c: ZZ, h: ZZ, mut budget: Budget) raises PolyError:
+    """r -= c h in place, without a temporary product, charged as r.sub(c.mul(h)) with the product's size taken as the factors' total."""
+    _work(c.size(), h.size(), True, budget)
+    _work(r.size(), _sum(c.size(), h.size()), False, budget)
+    try:
+        r.value._submul(c.value, h.value)
+    except e:
+        raise PolyError(PolyErrorKind.CAPACITY, String(e))
+
+
 @fieldwise_init
 struct ZZ(CoefficientRing):
     """An exact integer coefficient."""
@@ -451,6 +461,10 @@ struct QQ(CoefficientField):
             raise PolyError(PolyErrorKind.CAPACITY, String(e))
 
 def _mod_mul(a: UInt64, b: UInt64, p: UInt64) -> UInt64:
+    # Factors below 2^32 multiply within a word, whose remainder is a native
+    # division instead of a 128-bit one; the residue is the same.
+    if (a | b) >> 32 == 0:
+        return (a * b) % p
     return UInt64((UInt128(a) * UInt128(b)) % UInt128(p))
 
 def _mod_pow(a: UInt64, n: UInt64, p: UInt64, mut budget: Budget) raises PolyError -> UInt64:

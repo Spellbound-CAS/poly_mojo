@@ -118,9 +118,4 @@ nav:
       - Real algebraic numbers: reference/algebraic.md
       - Multivariate factorization: reference/advanced-factorization.md
       - CAD: reference/cad.md
-      - Compatibility contract: reference/contract-p.md
-  - Maintaining:
-      - Maintainer guide: contributing/handoff.md
-      - Writing documentation: contributing/documentation.md
-      - Contracts and rules: spec/index.md
-      - Source provenance and fixtures: contributing/reference.md
+      - Source compatibility: reference/contract-p.md

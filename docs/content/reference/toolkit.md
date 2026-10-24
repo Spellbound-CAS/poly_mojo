@@ -20,7 +20,7 @@ rational-function, basis, and series groups each start with a focused example.
 | Alternative bases | `BasisPolynomial` and `NumericBasisPolynomial` provide Newton, first-kind Chebyshev and Bernstein representations; Bernstein retains its degree |
 | Formal series | `TruncatedSeries` and `NumericSeries` carry a known order modulo x^n; binary operations require equal orders, and `.truncate` only reduces precision |
 | Root refinement | `refine_real_roots_*` and `refine_complex_roots_*` check earlier evidence, retain satisfactory regions and apply a new subdivision allowance |
-| Repeated exact real roots | `real_root_multiplicities` adds product, squarefreeness and Sturm witnesses to a complete isolated real cover |
+| Repeated exact real roots | `real_root_multiplicities` adds a squarefree decomposition and the vanishing block of each root to a complete Descartes result |
 | Root diagnostics | Residual, absolute coefficient backward-error and local derivative-sensitivity bounds are rational; sensitivity is a root condition bound only at a root |
 | Newton polishing | `polish_root_*` treats iterates as candidates and proves a one-root rectangle independently before reporting success |
 | Numerical division | Point domains return rounded q/r and full residual bounds; ball domains also prove uniform enclosure of exact Euclidean q/r |

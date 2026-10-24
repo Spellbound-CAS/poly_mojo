@@ -11,11 +11,25 @@ from .numeric_evaluate import _exact_dense_boxes, _numeric_dense_boxes
 from ._numeric_roots import _root_degree, _root_bound, _rational_polynomial, _derivative_boxes, _disjoint
 from .numeric_real_roots import RealRootCell, RealRootSink, _check_real_cell
 from .numeric_complex_roots import ComplexRootRegion, ComplexRootSink, _representative, _check_region
-from .algebraic_types import _copy_sequence as _copy_sturm
-from .certificates import SturmSequence, _check_root_count_parts
+from .certificates import SturmSequence, _check_root_count_parts, _check_root_count_chain, _IntegerChain
+from ._dense_ops import _copy as _copy_poly
 from .roots import sign_changes
-from ._root_ops import _compare
+from ._root_ops import _compare, _chain_variations
 from .root_stream import RootStreamReceipt
+
+
+def _copy_sturm(sequence: SturmSequence, mut budget: Budget) raises PolyError -> SturmSequence:
+    _allocation[DensePoly[QQ]](len(sequence.polynomials), budget)
+    _allocation[DensePoly[QQ]](len(sequence.quotients), budget)
+    var polynomials = List[DensePoly[QQ]]()
+    var quotients = List[DensePoly[QQ]]()
+    for p in sequence.polynomials:
+        budget.charge(1)
+        polynomials.append(_copy_poly(p, budget))
+    for p in sequence.quotients:
+        budget.charge(1)
+        quotients.append(_copy_poly(p, budget))
+    return SturmSequence(polynomials^, quotients^)
 
 
 @fieldwise_init
@@ -35,26 +49,7 @@ struct RealRootStreamChecker(RealRootSink, Movable):
     var _edge: QQ
     var _variations: Int
     var _started: Bool
-
-    @staticmethod
-    def from_dense[C: CoefficientRing](poly: DensePoly[C], options: NumericOptions, mut budget: Budget) raises PolyError -> Self:
-        """Prepare independent checking for an original polynomial.
-
-        Parameters:
-            C: The source coefficient domain.
-
-        Args:
-            poly: The original polynomial or coefficient family.
-            options: The original requested guarantees.
-            budget: The shared preparation allowance.
-
-        Returns:
-            A checker owning the input bounds and retained checking state.
-
-        Raises:
-            PolyError: DOMAIN for invalid input, UNSUPPORTED for unsupported domains, LIMIT or CAPACITY on work limits.
-        """
-        return Self._prepare(_exact_dense_boxes(poly, budget), options, budget)
+    var _chain: _IntegerChain
 
     @staticmethod
     def from_numeric[D: NumericDomain](poly: NumericDensePoly[D], options: NumericOptions, mut budget: Budget) raises PolyError -> Self:
@@ -85,7 +80,7 @@ struct RealRootStreamChecker(RealRootSink, Movable):
         var derivative = _derivative_boxes(coefficients, budget)
         var exact = _rational_polynomial(coefficients, budget)
         var edge = bound.neg(budget)
-        return Self(coefficients^, options, n, bound^, 0, True, True, n < 0, derivative^, exact^, None, edge^, 0, False)
+        return Self(coefficients^, options, n, bound^, 0, True, True, n < 0, derivative^, exact^, None, edge^, 0, False, _IntegerChain())
 
     def begin(mut self, sequence: Optional[SturmSequence], mut budget: Budget) raises PolyError:
         """Validate and retain the shared exact Sturm witness once.
@@ -104,9 +99,9 @@ struct RealRootStreamChecker(RealRootSink, Movable):
         if Bool(sequence) != Bool(self._exact):
             raise PolyError(PolyErrorKind.DOMAIN, "root stream Sturm mismatch")
         if sequence:
-            var first = sign_changes(sequence.value(), self._edge, budget)
-            var last = sign_changes(sequence.value(), self._bound, budget)
-            if not _check_root_count_parts(self._exact.value(), sequence.value(), self._edge, self._bound, first - last, budget):
+            var first = _chain_variations(sequence.value().polynomials, sequence.value().quotients, self._edge, budget)
+            var last = _chain_variations(sequence.value().polynomials, sequence.value().quotients, self._bound, budget)
+            if not _check_root_count_chain(self._exact.value(), sequence.value(), self._edge, self._bound, first - last, self._chain, budget):
                 raise PolyError(PolyErrorKind.DOMAIN, "invalid root stream Sturm evidence")
             self._sequence = _copy_sturm(sequence.value(), budget)
             self._variations = first
@@ -146,7 +141,7 @@ struct RealRootStreamChecker(RealRootSink, Movable):
         ref cell = witness
         if not self._started or not _box_valid(cell.interval, budget) or not _box_real(cell.interval, budget) or _compare(cell.interval.real_low, cell.interval.real_high, budget) >= 0 or cell.count < 0 or cell.interval.real_low != self._edge or _compare(cell.interval.real_high, self._bound, budget) > 0:
             return False
-        var next_variations = _check_real_cell(self._coefficients, self._derivative, self._exact, self._sequence, cell, self._variations, budget)
+        var next_variations = _check_real_cell(self._coefficients, self._derivative, self._exact, self._sequence, cell, self._variations, budget, self._chain)
         if not next_variations:
             return False
         var accurate = cell.count == 0 or _accurate(cell.interval, self._options, budget)

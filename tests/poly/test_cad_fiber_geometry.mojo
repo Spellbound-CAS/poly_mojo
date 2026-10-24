@@ -5,6 +5,7 @@ from std.testing import assert_true, assert_false, assert_equal
 
 
 def main() raises:
+    var budget = Budget()
     var a = dense.root_between([-2, 0, 1], 1, 2)
     var b = dense.root_between([-3, 0, 1], 1, 2)
     var p = [(0, algebraic.negative(a)), (1, algebraic.asreal(1))]
@@ -20,9 +21,8 @@ def main() raises:
     assert_equal(cells[3].signs, [1, 0])
     assert_equal(cells[4].signs, [1, 1])
     assert_true(cells[1].sample[0] == a and cells[3].sample[0] == b)
-    assert_equal(len(result.evidence().stacks), 3)
-    assert_equal(len(result.evidence().cells), 8)
-    var budget = Budget()
+    assert_equal(result.evidence().stack_count(), 3)
+    assert_equal(result.evidence().cell_count(budget), 8)
     var checker = cad.checker([p.copy(), q.copy()], budget)
     var receipt = cad.decompose_to([p.copy(), q.copy()], checker, budget)
     assert_true(checker.finish(receipt, budget))
@@ -32,7 +32,7 @@ def main() raises:
     var opposite = [(0, a.copy()), (1, algebraic.asreal(1))]
     var repeated = cad.decompose([p.copy(), opposite.copy(), p.copy()])
     assert_true(cad.check(repeated))
-    assert_equal(len(repeated.evidence().projection.variables), 2)
+    assert_equal(len(repeated.evidence().variables(budget)), 2)
     assert_equal(len(cad.cells(repeated)), 5)
     # A nonminimal witness and its dependent double must select compatible roots.
     var witness = dense.root_between([-2, 0, -1, 0, 1], 1, 2)
@@ -40,7 +40,7 @@ def main() raises:
     var dependent = [(0, algebraic.negative(double)), (1, algebraic.asreal(1))]
     var related = cad.decompose([p.copy(), dependent.copy()])
     assert_true(cad.check(related))
-    assert_equal(len(related.evidence().stacks), 3)
+    assert_equal(related.evidence().stack_count(), 3)
     assert_equal(len(cad.cells(related)), 5)
     var x = [((1, 0), algebraic.asreal(1)), ((0, 0), algebraic.negative(a))]
     var y = [((0, 1), algebraic.asreal(1)), ((0, 0), algebraic.negative(b))]
@@ -48,8 +48,8 @@ def main() raises:
     assert_true(cad.check(plane))
     var plane_cells = cad.cells(plane)
     assert_equal(len(plane_cells), 9)
-    assert_equal(len(plane.evidence().stacks), 6)
-    assert_equal(len(plane.evidence().cells), 15)
+    assert_equal(plane.evidence().stack_count(), 6)
+    assert_equal(plane.evidence().cell_count(budget), 15)
     var point_count = 0
     for cell in plane_cells:
         if cell.dimension == 0:
@@ -60,7 +60,7 @@ def main() raises:
     var rational = [(0, algebraic.asreal(-1)), (1, algebraic.asreal(1))]
     var empty_prefix = cad.decompose([rational.copy()], lazard=False)
     assert_true(cad.check(empty_prefix))
-    assert_equal(len(empty_prefix.evidence().stacks), 1)
+    assert_equal(empty_prefix.evidence().stack_count(), 1)
     var mccallum = cad.decompose([p.copy()], lazard=False)
     assert_true(cad.check(mccallum))
     assert_equal(len(cad.cells(mccallum)), 3)

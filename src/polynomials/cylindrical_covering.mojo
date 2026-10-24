@@ -27,11 +27,13 @@ from .sparse import SparsePoly
 from .certificates import _equal
 from .algebraic_types import RealAlgebraic, AlgebraicComparisonCertificate, _rational, _copy_real, _same_root, _check_comparison
 from .algebraic import algebraic_sign
-from .algebraic_specialization import AlgebraicPolynomialEvaluation, algebraic_evaluate_sparse, check_algebraic_evaluate_sparse
+from .algebraic_specialization import AlgebraicPolynomialEvaluation, _evaluate_sparse_cached, check_algebraic_evaluate_sparse
 from .cad_projection import CADProjectionCertificate, cad_projection, check_cad_projection, _level
 from .cad_types import CADCell, CADStackCertificate
-from ._cad_common import _cell, _coordinates, _signs, _check_signs, _masks, _violation
-from ._cad_lifting import _stack, _check_stack, _position
+from ._cad_common import _cell, _coordinates, _signs, _signs_cached, _check_signs, _masks, _violation
+from ._cad_lifting import _stack_cached, _check_stack, _position, _sample_lifting
+from ._algebraic import _NormalizationCache, _Frame as _PointFrame
+from ._algebraic_filter import _child_frame, _installed
 from ._cad_fiber_common import _validate_fixed, _selection
 
 
@@ -85,12 +87,12 @@ struct _Frame(Movable):
     var covered: List[Bool]
 
 
-def _conflict(inputs: List[SparsePoly[QQ]], masks: List[UInt8], levels: List[Int], level: Int, point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget) raises PolyError -> Optional[CADConflict]:
+def _conflict(inputs: List[SparsePoly[QQ]], masks: List[UInt8], levels: List[Int], level: Int, point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> Optional[CADConflict]:
     for i in range(len(inputs)):
         budget.charge(1)
         if levels[i] != level or masks[i] == 7:
             continue
-        var evaluation = algebraic_evaluate_sparse(inputs[i], point, budget)
+        var evaluation = _evaluate_sparse_cached(inputs[i], point, cache, budget)
         var sign = algebraic_sign(evaluation.value, budget)
         if masks[i] & (UInt8(1) << UInt8(sign.relation + 1)) == 0:
             return CADConflict(i, evaluation^, sign^)
@@ -160,10 +162,19 @@ def _uncovered(stack: CADStackCertificate, covered: List[Bool], mut budget: Budg
     return -1
 
 
-def _push(mut result: CylindricalCoveringCertificate, parent: Int, mut frames: List[_Frame], fixed: List[RealAlgebraic], mut budget: Budget) raises PolyError:
+def _push(mut result: CylindricalCoveringCertificate, parent: Int, mut frames: List[_Frame], fixed: List[RealAlgebraic], point_frame: _PointFrame, mut liftings: List[List[Optional[SparsePoly[QQ]]]], mut budget: Budget) raises PolyError:
     var point = _coordinates(result.cells, parent, result.projection.variables, budget)
     var level = result.cells[parent].level + 1
-    var stack = _stack(result.projection, parent, level, point[0], point[1], _rational(QQ.zero(NoContext()), budget), budget)
+    var cache = _NormalizationCache()
+    var framed = point_frame.valid and Bool(point_frame.generator)
+    cache.frame = _installed(point_frame, point[0], budget)
+    var stack = _stack_cached(result.projection, parent, level, point[0], point[1], _rational(QQ.zero(NoContext()), budget), cache, budget)
+    # The lifting polynomial of each root, for the frames of section children.
+    var roots = List[Optional[SparsePoly[QQ]]]()
+    if framed:
+        for gap in range(len(stack.roots)):
+            roots.append(_sample_lifting(result.projection, stack, point[0], _sum(_product(2, gap), 1), budget))
+    liftings.append(roots^)
     _allocation[Bool](len(stack.samples), budget)
     _allocation[_Frame](1, budget)
     _allocation[CADStackCertificate](1, budget)
@@ -207,7 +218,8 @@ def _cylindrical_covering(inputs: List[SparsePoly[QQ]], masks: List[UInt8], vari
         budget.charge(1)
         levels.append(_level(f, variables, budget))
     var empty = List[Tuple[Int64, RealAlgebraic]]()
-    result.root_conflict = _conflict(inputs, masks, levels, -1, empty, budget)
+    var plain = _NormalizationCache()
+    result.root_conflict = _conflict(inputs, masks, levels, -1, empty, plain, budget)
     if result.root_conflict:
         return result^
     if len(variables) == 0:
@@ -215,7 +227,10 @@ def _cylindrical_covering(inputs: List[SparsePoly[QQ]], masks: List[UInt8], vari
         result.witness_cell = 0
         return result^
     var frames = List[_Frame]()
-    _push(result, 0, frames, fixed, budget)
+    # Each cell's point frame, and each stack's root lifting polynomials.
+    var point_frames: List[_PointFrame] = [_PointFrame()]
+    var liftings = List[List[Optional[SparsePoly[QQ]]]]()
+    _push(result, 0, frames, fixed, point_frames[0], liftings, budget)
     while len(frames):
         budget.charge(1)
         var frame = len(frames) - 1
@@ -231,7 +246,13 @@ def _cylindrical_covering(inputs: List[SparsePoly[QQ]], masks: List[UInt8], vari
         var level = result.cells[parent].level + 1
         _allocation[Tuple[Int64, RealAlgebraic]](1, budget)
         point[0].append((variables[level], _copy_real(result.stacks[stack_index].samples[position], budget)))
-        var conflict = _conflict(inputs, masks, levels, level, point[0], budget)
+        var lifting: Optional[SparsePoly[QQ]] = None
+        if position % 2 == 1 and position // 2 < len(liftings[stack_index]) and liftings[stack_index][position // 2]:
+            lifting = liftings[stack_index][position // 2].value()._copy(budget)
+        var child_frame = _child_frame(point_frames[parent], variables[level], lifting, result.stacks[stack_index].samples[position], budget)
+        var cache = _NormalizationCache()
+        cache.frame = _installed(child_frame, point[0], budget)
+        var conflict = _conflict(inputs, masks, levels, level, point[0], cache, budget)
         if conflict:
             var proof = conflict.take()
             var bounds = _range(result.projection, result.stacks[stack_index], proof.constraint, position, masks[proof.constraint], budget)
@@ -243,13 +264,14 @@ def _cylindrical_covering(inputs: List[SparsePoly[QQ]], masks: List[UInt8], vari
             continue
         var child = _cell(parent, level, position, result.stacks[stack_index].samples[position], budget)
         if level == len(variables) - 1:
-            _signs(inputs, point[0], child.evaluations, child.signs, budget)
+            _signs_cached(inputs, point[0], child.evaluations, child.signs, cache, budget)
             result.witness_cell = len(result.cells)
         _allocation[CADCell](1, budget)
         result.cells.append(child^)
+        point_frames.append(child_frame^)
         if result.witness_cell != -1:
             return result^
-        _push(result, len(result.cells) - 1, frames, fixed, budget)
+        _push(result, len(result.cells) - 1, frames, fixed, point_frames[len(point_frames) - 1], liftings, budget)
     return result^
 
 

@@ -39,8 +39,16 @@ a permutation of every axis, including unused axes. Changing the order can
 change the amount of work and the shape of a decomposition. Returned points
 always use the original polynomial axis order.
 
-Lazard projection is the default. `lazard=False` selects McCallum projection,
-which can raise `UNSUPPORTED` on nullification outside its supported cases.
+By default `cad.decompose` and `cad.cover` use Brown–McCallum projection
+reductions with Lazard lifting, interval-first root isolation and independent
+final verification. `lazard=True` uses
+plain Lazard projection with the same compact backend. `lazard=False` requests
+the checked legacy McCallum backend, which can raise `UNSUPPORTED` on
+nullification outside its supported cases. Fixed-coordinate and algebraic
+coefficient prefixes also use checked legacy evidence. `cad.solve`,
+`cad.decompose_to` and the other CAD operations default to Lazard projection:
+a stream cannot fall back once McCallum refuses, because the sink has already
+accepted its events.
 
 For large outputs, use `cad.decompose_to` and `cad.checker`, as shown in the
 [streaming example](array-roots.md#process-witnesses-as-they-arrive). They consume

@@ -1,6 +1,6 @@
 """Domain, budget, nonmutation, and corrupted-evidence solver boundaries."""
 from apn_mojo import Rational, ExactComplex
-from polynomials import Budget, PolyError, PolyErrorKind, NumericOptions, check_root_count, check_algebraic_roots, check_real_roots_exact, check_complex_roots_exact, check_membership, check_cad, check_cylindrical_covering
+from polynomials import Budget, PolyError, PolyErrorKind, NumericOptions, check_descartes_count, check_algebraic_roots, check_real_roots_exact, check_complex_roots_exact, check_membership, check_coverings
 from poly import dense, sparse, algebraic, roots, cad, coefficients
 from std.memory import ArcPointer
 from std.testing import assert_equal, assert_true
@@ -87,7 +87,7 @@ def main() raises:
     count_evidence.count += 1
     var q = dense.to_core(coefficients((Rational(-2), 0, 1)))
     var work = Budget()
-    assert_true(not check_root_count(q, count_evidence, work))
+    assert_true(not check_descartes_count(q, count_evidence, work))
     var exact_roots = dense.real_roots(p)
     var evidence = exact_roots.evidence().copy()
     evidence.accepted.clear()
@@ -101,7 +101,7 @@ def main() raises:
     var options = NumericOptions(absolute_bits=2)
     var cover = dense.real_root_cover(p, options=options, complete_only=True)
     var bad_cover = cover.evidence().copy()
-    bad_cover.cells.clear()
+    bad_cover.certificate.leaves.clear()
     assert_true(not check_real_roots_exact(q, bad_cover, options, work))
     assert_true(roots.check(cover))
     var basis = sparse.groebner([[(1, 1)]])
@@ -111,11 +111,13 @@ def main() raises:
     assert_true(not check_membership(member.value()._data[].polynomial, member.value()._data[].basis[].generators, bad_member, work))
     var inputs = [[(0, -1), (2, 1)]]
     var decomposition = cad.decompose(inputs)
-    var bad_cad = decomposition.evidence().copy()
-    bad_cad.cells.clear()
-    assert_true(not check_cad(decomposition._data[].inputs, bad_cad, work))
+    # Compact certificates share immutable storage, so corrupt a separate result.
+    var bad_cad = cad.decompose(inputs)
+    bad_cad._data[].proof._data[].compact.value().stacks.clear()
+    assert_true(not cad.check(bad_cad, work))
+    assert_true(cad.check(decomposition, work))
     var solution = cad.solve([cad.negative(inputs[0])])
     var bad_solution = solution.evidence().copy()
-    bad_solution.witness_cell = 99999
-    assert_true(not check_cylindrical_covering(solution._data[].inputs, solution._data[].masks, bad_solution, work))
+    bad_solution.root_conflict = 99999
+    assert_true(not check_coverings(solution._data[].inputs, solution._data[].masks, bad_solution, work))
     print("array solver boundary checks passed")

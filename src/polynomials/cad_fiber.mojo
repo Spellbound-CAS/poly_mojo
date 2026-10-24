@@ -12,6 +12,7 @@ from .cad_types import CADCertificate, CADCoveringCertificate
 from .cad import _cad, _check_cad
 from .cad_covering import _cad_covering, _check_cad_covering
 from .cylindrical_covering import CylindricalCoveringCertificate, _cylindrical_covering, _check
+from .cad_coverings_search import CADCoveringsCertificate, _coverings, _check_coverings
 from .cad_stream import CADSink, CADStreamReceipt, CADStreamChecker, _cad_to
 from ._cad_common import _masks
 from ._cad_fiber_common import _validate_fixed, _copy_fixed
@@ -93,6 +94,47 @@ struct CADFiber(Copyable, Movable):
             PolyError: DOMAIN for invalid inputs or a prefix outside projection sections, UNSUPPORTED for McCallum nullification, LIMIT or CAPACITY on work limits.
         """
         return _cylindrical_covering(inputs, masks, variables, self._fixed, budget, lazard)
+
+    def search(self, inputs: List[SparsePoly[QQ]], masks: List[UInt8], variables: List[Int64], mut budget: Budget, lazard: Bool = False) raises PolyError -> CADCoveringsCertificate:
+        """Decide the conjunction on the fiber by a conflict-driven search over cylindrical coverings.
+
+        Args:
+            inputs: Rational polynomials over all variables.
+            masks: Allowed sign bits per input: 1 for negative, 2 for zero, 4 for positive.
+            variables: All variables in base-to-top order, with fixed coordinates first.
+            budget: The shared work and storage allowance.
+            lazard: Whether to use Lazard characterizations; False selects McCallum's.
+
+        Returns:
+            A witness on the fiber or a covering of it; check it with this CADFiber.
+
+        Raises:
+            PolyError: DOMAIN for invalid inputs, UNSUPPORTED for McCallum nullification, LIMIT or CAPACITY on work limits.
+        """
+        return _coverings(inputs, masks, variables, self._fixed, budget, lazard)
+
+    def check(self, inputs: List[SparsePoly[QQ]], masks: List[UInt8], certificate: CADCoveringsCertificate, mut budget: Budget) raises PolyError -> Bool:
+        """Verify a coverings witness or covering on exactly the bound prefix.
+
+        Args:
+            inputs: The original rational polynomial family.
+            masks: The original allowed-sign masks.
+            certificate: The proposed witness or covering.
+            budget: The shared verification allowance.
+
+        Returns:
+            Whether the certificate proves its verdict on the fiber.
+
+        Raises:
+            PolyError: LIMIT or CAPACITY on work limits, DOMAIN for invalid masks.
+        """
+        _masks(inputs, masks, budget)
+        try:
+            return _check_coverings(inputs, masks, certificate, self._fixed, budget)
+        except e:
+            if e.kind == PolyErrorKind.DOMAIN:
+                return False
+            raise e^
 
     def check(self, inputs: List[SparsePoly[QQ]], certificate: CADCertificate, mut budget: Budget) raises PolyError -> Bool:
         """Verify the geometric claim on exactly the bound section prefix.

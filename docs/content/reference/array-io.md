@@ -44,8 +44,12 @@ The reader restores their evidence and runs the corresponding independent
 checker. It does not rerun the producing solver. Unsupported result types fail
 at compilation; records with rejected evidence fail with `ENCODING`.
 
-Certificate archives have their own `CHECKED-1` type tag inside the value
-framing. Keep the producing package version alongside long-lived archives;
+Certificate archives have their own versioned `CHECKED-*` type tag inside the
+value framing. CAD decompositions and full coverings now write `CHECKED-3`,
+with compact final data or an explicitly tagged legacy payload. Their readers
+also accept the old `CHECKED-1` records and independently check the retained
+evidence without rerunning construction. Older readers reject the new tag.
+Selective solutions remain `CHECKED-2`. Keep the producing package version alongside long-lived archives;
 the tag is based on the Mojo type name plus an explicit axis count and is not a cross-version ABI promise.
 
 CAD decomposition, solution, and covering archives retain any `fixed=`

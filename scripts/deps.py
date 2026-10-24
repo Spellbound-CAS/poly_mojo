@@ -32,7 +32,7 @@ from packages import test_dependencies
 
 ROOT = Path(__file__).resolve().parent.parent
 DEPS = {
-    'apn_mojo': dict(url='https://github.com/Spellbound-Mojo/apn_mojo.git', commit='38b95160988761662f23d93225ca92240e039c98', packages=['src/apn_mojo']),
+    'apn_mojo': dict(url='https://github.com/Spellbound-Mojo/apn_mojo.git', commit='760120ee85e1954e9ff521d0e27d6de585a3d2eb', packages=['src/apn_mojo']),
 }
 DEPS.update(test_dependencies())
 

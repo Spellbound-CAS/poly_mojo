@@ -1,6 +1,6 @@
-"""Exact multiplicities require product, squarefreeness and root-count evidence."""
+"""Exact multiplicities require product evidence, coprime blocks and a vanishing block per root."""
 from apn_mojo import Rational
-from polynomials import Budget, QQ, NoContext, DensePoly, NumericOptions, PolyErrorKind, real_roots_exact, real_root_multiplicities, check_real_root_multiplicities
+from polynomials import Budget, QQ, NoContext, DensePoly, NumericOptions, PolyErrorKind, real_roots_exact, real_root_multiplicities, check_real_root_multiplicities, check_squarefree_product
 from support.check import Checker
 
 
@@ -13,22 +13,28 @@ def main() raises:
     var roots = real_roots_exact(f, options, work, complete_only=True)
     var certificate = real_root_multiplicities(f, roots, options, work)
     c.check(check_real_root_multiplicities(f, roots, options, certificate, work), "complete multiplicity certificate")
-    var multiplicities = List[Int]()
-    for value in certificate.multiplicities:
-        if value:
-            multiplicities.append(value)
     var expected: List[Int] = [3, 2]
-    c.check(multiplicities == expected, "known repeated-root multiplicities")
+    c.check(certificate.multiplicities == expected, "known repeated-root multiplicities in root order")
     var bad = certificate.copy()
     bad.multiplicities[0] += 1
     c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "forged multiplicity rejected")
     bad = certificate.copy()
-    _ = bad.sequences.pop()
-    c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "missing factor Sturm evidence rejected")
+    bad.blocks[0] = bad.blocks[1]
+    bad.multiplicities[0] = bad.multiplicities[1]
+    c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "block that does not vanish at the root rejected")
     bad = certificate.copy()
-    var zero = DensePoly[QQ](0, NoContext())
-    bad.squarefree_witnesses[0] = (zero.copy(), zero.copy())
-    c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "false squarefreeness witness rejected")
+    _ = bad.blocks.pop()
+    c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "missing root block rejected")
+    # (x - 1)(x + 2) squared times (x + 2) is f, but the blocks share a root,
+    # so their product is not the squarefree part.
+    bad = certificate.copy()
+    var x_minus_1 = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(-1)), QQ(Rational(1))], work)
+    var x_plus_2 = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(2)), QQ(Rational(1))], work)
+    bad.decomposition.factors = [(x_minus_1.mul(x_plus_2, work), 2), (x_plus_2.copy(), 1)]
+    c.check(check_squarefree_product(f, bad.decomposition, work), "the overlapping blocks still multiply to f")
+    bad.blocks = [1, 0]
+    bad.multiplicities = [1, 2]
+    c.check(not check_real_root_multiplicities(f, roots, options, bad, work), "blocks sharing a root rejected")
     var tiny = Budget(0)
     try:
         _ = real_root_multiplicities(f, roots, options, tiny)

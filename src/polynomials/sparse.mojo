@@ -1,9 +1,10 @@
 """Canonical sparse arithmetic by merging ordered exact terms."""
 from std.sys import size_of
 from .errors import Budget, PolyError, PolyErrorKind, _sum, _product, _charge_size, _allocation
-from .coefficients import CoefficientRing
+from .coefficients import CoefficientRing, ZZ, ModInt
 from .monomial import Monomial, MonomialOrder
 from ._ordering import _IndexedOrder, _stable_indices, _sift_min
+from ._packed_products import _packed_power, _packed_product
 
 @fieldwise_init
 struct Term[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
@@ -136,6 +137,9 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
         """
         var result = Self.zero(order, ring, budget)
         var indices = _sorted_indices[validate=True](terms, order, ring, budget)
+        # Validated monomials use only the order's variables, so an identity
+        # order compares them all by the merge pass `_compare` would choose.
+        var identity = order._identity()
         for index in indices:
             budget.charge(1)
             # Sorting is finished and each owned slot is visited once. Move its
@@ -146,7 +150,12 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
                 continue
             if len(result.terms) > 0:
                 var last = len(result.terms) - 1
-                if order._compare(result.terms[last].monomial, t.monomial, budget) == 0:
+                var same: Bool
+                if identity:
+                    same = order._compare_identity(result.terms[last].monomial, t.monomial, budget) == 0
+                else:
+                    same = order._compare(result.terms[last].monomial, t.monomial, budget) == 0
+                if same:
                     var sum = result.terms[last].coefficient.add(t.coefficient, budget)
                     if sum.is_zero():
                         _ = result.terms.pop()
@@ -333,6 +342,12 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
                 var right = other.reorder(order, budget)
                 var result = _heap_product[Self.C, True](left, right, budget) if len(left.terms) <= len(right.terms) else _heap_product[Self.C, True](right, left, budget)
                 return result.reorder(self.order, budget)
+        comptime if Self.C == ZZ or Self.C == ModInt:
+            if self.order.kind == MonomialOrder.LEX and count >= 256:
+                # Kronecker-packed exponents and dense windows.
+                var packed = _packed_product(self, other, budget)
+                if packed:
+                    return packed.take()
         if self.order.kind != MonomialOrder.KERNEL and count >= 64:
             if len(self.terms) <= len(other.terms):
                 return _heap_product(self, other, budget)
@@ -386,6 +401,10 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
     def pow(self, n: UInt64, mut budget: Budget) raises PolyError -> Self:
         """Raise to a natural power by repeated squaring, with zero power equal to one.
 
+        Squaring runs from the exponent's leading bit down, so each step
+        squares the power so far and multiplies by the base alone; the last
+        and largest product is a square.
+
         Args:
             n: The exponent.
             budget: The shared work allowance.
@@ -396,18 +415,23 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
         Raises:
             PolyError: LIMIT or CAPACITY on work limits.
         """
-        var result = Self.constant(Self.C.one(self.ring), self.order, budget)
         if n == 0:
-            return result^
-        var base = self._copy(budget)
-        var exponent = n
-        while exponent:
+            return Self.constant(Self.C.one(self.ring), self.order, budget)
+        comptime if Self.C == ZZ:
+            if self.order.kind == MonomialOrder.LEX and n >= 3 and n <= UInt64(1 << 20):
+                var packed = _packed_power(self, Int(n), budget)
+                if packed:
+                    return packed.take()
+        var result = self._copy(budget)
+        var bit = 63
+        while not (n >> UInt64(bit)) & 1:
+            bit -= 1
+        while bit > 0:
             budget.charge(1)
-            if exponent & 1:
-                result = result.mul(base, budget)
-            exponent >>= 1
-            if exponent:
-                base = base.mul(base, budget)
+            bit -= 1
+            result = result.mul(result, budget)
+            if (n >> UInt64(bit)) & 1:
+                result = result.mul(self, budget)
         return result^
 
     def leading(self, mut budget: Budget) raises PolyError -> Term[Self.C]:
@@ -507,11 +531,101 @@ struct SparsePoly[C: CoefficientRing](Copyable, Movable, Equatable, Writable):
         _charge_size(_sum(len(self.order.variables), len(order.variables)), budget)
         if self.order == order:
             return self._copy(budget)
+        if order.kind == MonomialOrder.LEX and order._identity():
+            var sorted = self._lex_sorted(order, budget)
+            if sorted:
+                return sorted.take()
         var terms = List[Term[Self.C]]()
         for t in self.terms:
             budget.charge(1)
             terms.append(t._copy(budget))
         return Self.from_terms(terms^, order, self.ring, budget)
+
+    def _moved_to(var self, order: MonomialOrder, mut budget: Budget) raises PolyError -> Self:
+        """`reorder`, consuming the polynomial: its terms move rather than being copied."""
+        _charge_size(_sum(len(self.order.variables), len(order.variables)), budget)
+        if self.order == order:
+            return self^
+        if order.kind == MonomialOrder.LEX and order._identity():
+            var keys = self._lex_keys(order, budget)
+            if keys:
+                # Term i of the result is the term in the low bits of key i:
+                # apply that permutation in place, a cycle at a time.
+                ref sorted = keys.value()
+                var n = len(sorted)
+                budget.charge(UInt64(n))
+                var done = List[Bool](length=n, fill=False)
+                for start in range(n):
+                    if done[start]:
+                        continue
+                    var j = start
+                    done[j] = True
+                    while Int(sorted[j] & UInt256(0xFFFFFFFF)) != start:
+                        var source = Int(sorted[j] & UInt256(0xFFFFFFFF))
+                        self.terms.swap_elements(j, source)
+                        j = source
+                        done[j] = True
+                self.order = order.copy()
+                return self^
+        var terms = List[Term[Self.C]]()
+        swap(terms, self.terms)
+        budget.charge(UInt64(len(terms)))
+        return Self.from_terms(terms^, order, self.ring, budget)
+
+    def _lex_keys(self, order: MonomialOrder, mut budget: Budget) raises PolyError -> Optional[List[UInt256]]:
+        """The sorted keys `_lex_sorted` orders the terms by, or None when they do not fit."""
+        var n = len(order.variables)
+        if n > 16 or len(self.terms) >= (1 << 32):
+            return None
+        _allocation[UInt256](len(self.terms), budget)
+        var keys = List[UInt256](capacity=len(self.terms))
+        for i in range(len(self.terms)):
+            ref m = self.terms[i].monomial
+            _charge_size(_sum(len(m.pairs), 1), budget)
+            if not order._within(m):
+                return None
+            var key = UInt256(i)
+            for pair in m.pairs:
+                if pair[1] >= 4096:
+                    return None
+                key |= UInt256(pair[1]) << UInt256(32 + 12 * (n - 1 - Int(pair[0])))
+            keys.append(key)
+        sort(keys)
+        return keys^
+
+    def _lex_sorted(self, order: MonomialOrder, mut budget: Budget) raises PolyError -> Optional[Self]:
+        """`reorder` into a LEX order over variables 0..n-1 by integer keys, or None when they do not fit.
+
+        The terms are already distinct and nonzero, so reordering is a sort.
+        LEX compares exponent vectors from variable 0, so for at most sixteen
+        variables and exponents below 4096 a key of twelve bits per variable,
+        variable 0 highest, over the term's index in the low 32 bits, sorts
+        exactly as the order does.
+        """
+        var n = len(order.variables)
+        if n > 16 or len(self.terms) >= (1 << 32):
+            return None
+        _allocation[UInt256](len(self.terms), budget)
+        var keys = List[UInt256](capacity=len(self.terms))
+        for i in range(len(self.terms)):
+            ref m = self.terms[i].monomial
+            _charge_size(_sum(len(m.pairs), 1), budget)
+            if not order._within(m):
+                return None
+            var key = UInt256(i)
+            for pair in m.pairs:
+                if pair[1] >= 4096:
+                    return None
+                key |= UInt256(pair[1]) << UInt256(32 + 12 * (n - 1 - Int(pair[0])))
+            keys.append(key)
+        sort(keys)
+        var result = Self.zero(order, self.ring, budget)
+        _allocation[Term[Self.C]](len(self.terms), budget)
+        result.terms.reserve(len(self.terms))
+        for key in keys:
+            budget.charge(1)
+            result.terms.append(self.terms[Int(key & UInt256(0xFFFFFFFF))]._copy(budget))
+        return result^
 
     def check_invariants(self, mut budget: Budget) raises PolyError:
         """Check the ring, monomials, coefficients, and strict term order.
@@ -670,10 +784,91 @@ struct _ExactTermOrder[C: CoefficientRing](_IndexedOrder):
         return order._compare(items[a].monomial, items[b].monomial, budget)
 
 
+struct _IdentityTermOrder[C: CoefficientRing](_IndexedOrder):
+    """`_ExactTermOrder` for an identity order whose terms all lie within it."""
+    comptime Item = Term[Self.C]
+
+    @staticmethod
+    @always_inline
+    def compare(items: List[Self.Item], a: Int, b: Int, order: MonomialOrder, mut budget: Budget) raises PolyError -> Int:
+        return order._compare_identity(items.unsafe_get(a).monomial, items.unsafe_get(b).monomial, budget)
+
+
 def _sorted_indices[C: CoefficientRing, validate: Bool = False](terms: List[Term[C]], order: MonomialOrder, ring: C.Context, mut budget: Budget) raises PolyError -> List[Int]:
+    # `_compare` checks the order and both monomials on every call; check once.
+    var identity = order._identity()
     comptime if validate:
         for term in terms:
             if term.coefficient.context() != ring:
                 raise PolyError(PolyErrorKind.DOMAIN, "coefficient in another ring")
-            order.validate(term.monomial, budget)
+            if identity:
+                order._validate_identity(term.monomial, budget)
+            else:
+                order.validate(term.monomial, budget)
+    else:
+        for term in terms:
+            if identity and not order._within(term.monomial):
+                identity = False
+    if identity:
+        return _stable_indices[_IdentityTermOrder[C]](terms, order, budget)
+    if order.kind == MonomialOrder.KERNEL:
+        var keys = _kernel_keys(terms)
+        if keys:
+            return _stable_key_indices(keys.value(), budget)
     return _stable_indices[_ExactTermOrder[C]](terms, order, budget)
+
+
+comptime _KEY_PAIRS = 4
+"""Monomials with at most this many pairs pack into one KERNEL sort key."""
+
+
+def _kernel_keys[C: CoefficientRing](terms: List[Term[C]]) -> Optional[List[UInt128]]:
+    """KERNEL compares pairs (variable, exponent) lexicographically with a
+    shorter prefix first. With variable + 1 and the exponent in 16 bits
+    each, pair i fills bits 96 - 32 i up, and absent pairs stay zero, below
+    every present pair: integer order of the keys is that order exactly."""
+    var keys = List[UInt128](capacity=len(terms))
+    for term in terms:
+        ref pairs = term.monomial.pairs
+        if len(pairs) > _KEY_PAIRS:
+            return None
+        var key = UInt128(0)
+        for i in range(len(pairs)):
+            var v = pairs[i][0]
+            var e = pairs[i][1]
+            if v < 0 or v >= 0xFFFF or e > 0xFFFF:
+                return None
+            key |= ((UInt128(UInt64(v + 1)) << 16) | UInt128(e)) << UInt128(96 - 32 * i)
+        keys.append(key)
+    return keys^
+
+
+def _stable_key_indices(keys: List[UInt128], mut budget: Budget) raises PolyError -> List[Int]:
+    """Indices sorted stably by key, by bottom-up merging as _stable_indices does."""
+    var n = len(keys)
+    _allocation[Int](_product(n, 2), budget)
+    var indices = List[Int](capacity=n)
+    var scratch = List[Int](length=n, fill=0)
+    for i in range(n):
+        indices.append(i)
+    _charge_size(n, budget)
+    var width = 1
+    while width < n:
+        _charge_size(n, budget)
+        var start = 0
+        while start < n:
+            var middle = start + min(width, n - start)
+            var end = middle + min(width, n - middle)
+            var left = start
+            var right = middle
+            for k in range(start, end):
+                if right == end or (left < middle and keys.unsafe_get(indices.unsafe_get(left)) <= keys.unsafe_get(indices.unsafe_get(right))):
+                    scratch[k] = indices[left]
+                    left += 1
+                else:
+                    scratch[k] = indices[right]
+                    right += 1
+            start = end
+        swap(indices, scratch)
+        width = n if width > n // 2 else width * 2
+    return indices^
