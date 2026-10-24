@@ -2,14 +2,44 @@
 
 For the array workflow, see [inequalities and CAD](../tutorial/array-cad.md).
 
+## Final-data construction
+
+`cad_final` builds a complete CAD and independently verifies its final data
+before returning. Its default combines Brown–McCallum projection reductions
+with Lazard lifting,
+one algebraic field per base sample, relative sections and bounded
+interval-first root isolation. The verifier checks projection, specialization,
+root completeness, geometry and original-input signs; it does not replay
+intermediate construction proofs. Checked exact SIMD batches accelerate
+eligible rational sign evaluations, with scalar and arbitrary-precision
+fallbacks.
+
+`CADFinalCertificate` is the evidence returned by `poly.cad.decompose` and
+`poly.cad.cover`. It exposes metadata methods and explicit `cells(budget)` and
+`sample(budget)` materialization. `check_cad_final` binds inputs, order, fixed
+prefix and conjunction independently. Explicit McCallum requests and fixed
+prefixes retain the compatible legacy backend and undergo its complete check.
+
+<!-- api: src/polynomials/cad_final_types.mojo CADFinalCell -->
+
+<!-- api: src/polynomials/cad_final.mojo CADFinalCertificate -->
+
+<!-- api: src/polynomials/cad_final.mojo cad_final -->
+
+<!-- api: src/polynomials/cad_final.mojo check_cad_final -->
+
+## Legacy certificates
+
 `cad` constructs a complete sign-invariant decomposition of real coordinate
 space. Variables are supplied in **base-to-top** order; every input variable
 must occur in that list. Extra variables are allowed. Inputs may share factors,
 contain repeated factors, be constant, or be zero. The producer builds primitive
 squarefree pairwise coprime projection bases before lifting.
 
-McCallum projection includes every coefficient, discriminants and pairwise
-resultants. Lazard projection includes leading and trailing coefficients,
+McCallum projection includes each member's coefficients from the leading one
+down to the first nonzero constant (every coefficient when none is constant),
+discriminants and pairwise resultants. `check_cad_projection` also accepts the
+full coefficient set in older certificates. Lazard projection includes leading and trailing coefficients,
 discriminants and pairwise resultants. Both use `Res(f,f')` in place of the
 discriminant: the extra leading-coefficient factor is already projected.
 Projection certificates prove the **Sylvester determinants**, not merely
@@ -95,6 +125,34 @@ requires every parent stack position to be covered. For feasibility, it checks
 the complete assignment and all constraint signs. Constant contradictions need
 no stack. No producer or search is invoked by this checker.
 
+`coverings_solve` decides a conjunction without any global projection, by the
+conflict-driven search over cylindrical algebraic coverings of Ábrahám,
+Davenport, England and Kremer (2021). It assigns one coordinate at a time and
+stops at the first satisfying point. A constraint is delineated only once it
+fails at a candidate sample; a level whose samples all fail returns intervals,
+each with the polynomials characterizing it. Their Lazard projection (leading
+and trailing coefficients, discriminants, and resultants with interval bounds
+on the sides where a polynomial has roots, and of adjacent bounds) gives the
+interval excluded one level down. With `lazard=False` the characterization
+uses every coefficient and McCallum nullification raises `UNSUPPORTED`.
+
+`CADCoveringsCertificate` holds either a witness, with exact evaluations and
+signs of every input, or a covering tree. Each `CoveringNode` covers one
+coordinate's line above the prefix formed by its ancestors' samples, by
+`CoveringInterval`s in increasing order. A `CoveringBound` names a root of a
+listed polynomial at that prefix by its index. An interval is a single section
+or an open interval; it is excluded either by a `constraint` whose sign at the
+interval sample fails, or by a `child` covering above the sample. Supplied
+factorizations of the inputs and of the projection polynomials are checked by
+product. `check_coverings` recomputes every bound, requires the intervals to
+cover the line, finds no characterization root inside an open interval, checks
+conflict signs exactly, and for every child recomputes its Lazard projection
+(requiring nonzero discriminants) and requires each factor in the parent
+interval's characterization. It reuses the producer's exact root and sign
+routines but none of its choices. `CADFiber.search` and its `check` overload
+start the search and the check at the fiber's fixed prefix. `poly.cad.solve`
+returns this evidence.
+
 All traversals use explicit worklists and budgets. Invalid certificates return
 false or a documented typed error; exhausted checking raises `LIMIT`.
 
@@ -111,6 +169,8 @@ false or a documented typed error; exhausted checking raises `LIMIT`.
 <!-- api: src/polynomials/cad_types.mojo CADPolynomialLift -->
 
 <!-- api: src/polynomials/cad_projection.mojo CADProjectionCertificate -->
+
+<!-- api: src/polynomials/cad_types.mojo CADSignWitness -->
 
 <!-- api: src/polynomials/cad_types.mojo CADStackCertificate -->
 
@@ -153,3 +213,15 @@ false or a documented typed error; exhausted checking raises `LIMIT`.
 <!-- api: src/polynomials/cylindrical_covering.mojo cylindrical_covering -->
 
 <!-- api: src/polynomials/cylindrical_covering.mojo check_cylindrical_covering -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo CoveringBound -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo CoveringInterval -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo CoveringNode -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo CADCoveringsCertificate -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo coverings_solve -->
+
+<!-- api: src/polynomials/cad_coverings_search.mojo check_coverings -->

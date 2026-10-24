@@ -1,6 +1,6 @@
 """Versioned algebraic array records with incremental transport and checked witnesses."""
 from apn_mojo import Rational, ConversionLimits
-from polynomials import Budget, PolyError, PolyErrorKind, CoefficientRing, NoContext, QQ, DensePoly, SparsePoly, Term, Monomial, MonomialOrder, RealAlgebraic, SturmSequence, check_real_algebraic, PolynomialTextSource, PolynomialTextSink
+from polynomials import Budget, PolyError, PolyErrorKind, CoefficientRing, NoContext, QQ, DensePoly, SparsePoly, Term, Monomial, MonomialOrder, RealAlgebraic, check_real_algebraic, PolynomialTextSource, PolynomialTextSink
 from ._common import _allocation, _charge_size, _sum, _product, _grow
 from ._algebraic_value import Real, Complex, _plain, _copy_witness
 
@@ -39,12 +39,19 @@ def _unsigned(text: String, maximum: UInt64, mut budget: Budget) raises PolyErro
     return result
 
 
-@fieldwise_init
 struct _Reader[S: PolynomialTextSource](Movable):
     var source: Self.S
     var chunk: String
     var position: Int
     var maximum: Int
+    var legacy_cad_archive: Bool
+
+    def __init__(out self, var source: Self.S, var chunk: String, position: Int, maximum: Int):
+        self.source = source^
+        self.chunk = chunk^
+        self.position = position
+        self.maximum = maximum
+        self.legacy_cad_archive = False
 
     def line(mut self, mut budget: Budget) raises PolyError -> String:
         var result = String()
@@ -118,29 +125,19 @@ struct _Reader[S: PolynomialTextSource](Movable):
         return DensePoly[QQ].from_coefficients(0, NoContext(), coefficients^, budget)
 
     def real(mut self, mut budget: Budget) raises PolyError -> Real:
-        var rational = Bool(self.number(1, budget))
+        # The tag is 2 + the rational flag; tags 0 and 1 carried Sturm sequences.
+        var tag = self.number(3, budget)
+        if tag < 2:
+            raise _bad("algebraic witness predates Descartes isolation; recompute it")
+        var rational = tag == 3
         var low = self.rational(budget)
         var high = self.rational(budget)
         var polynomial = self.polynomial(budget)
-        var polynomials = List[DensePoly[QQ]]()
-        var count = self.count(budget)
-        for _ in range(count):
-            budget.charge(1)
-            var p = self.polynomial(budget)
-            _grow(polynomials, budget)
-            polynomials.append(p^)
-        var quotients = List[DensePoly[QQ]]()
-        count = self.count(budget)
-        for _ in range(count):
-            budget.charge(1)
-            var p = self.polynomial(budget)
-            _grow(quotients, budget)
-            quotients.append(p^)
-        var witness = RealAlgebraic(polynomial^, low^, high^, SturmSequence(polynomials^, quotients^), rational)
+        var witness = RealAlgebraic(polynomial^, low^, high^, rational)
         if not check_real_algebraic(witness, budget):
             raise _bad("invalid algebraic root witness")
         # Preserve the supplied witness; compute the normal equality cache only
-        # after the independent Sturm/evaluation check has accepted its value.
+        # after the independent Descartes/evaluation check has accepted its value.
         return _plain(witness^, budget)
 
     def scalar[C: CoefficientRing](mut self, mut budget: Budget) raises PolyError -> C:
@@ -197,16 +194,10 @@ struct _Writer(Movable):
         var normalized = _plain(_copy_witness(witness, budget), budget)
         if value != normalized or value.is_zero() != normalized.is_zero():
             raise PolyError(PolyErrorKind.DOMAIN, "invalid algebraic equality cache")
-        self.line(String(Int(witness.rational)), sink, budget)
+        self.line(String(2 + Int(witness.rational)), sink, budget)
         self.line(_qtext(witness.low, budget), sink, budget)
         self.line(_qtext(witness.high, budget), sink, budget)
         self.polynomial(witness.polynomial, sink, budget)
-        self.line(String(len(witness.sequence.polynomials)), sink, budget)
-        for p in witness.sequence.polynomials:
-            self.polynomial(p, sink, budget)
-        self.line(String(len(witness.sequence.quotients)), sink, budget)
-        for p in witness.sequence.quotients:
-            self.polynomial(p, sink, budget)
 
     def scalar[C: CoefficientRing, S: PolynomialTextSink](mut self, value: C, mut sink: S, mut budget: Budget) raises PolyError:
         comptime if C == Real:

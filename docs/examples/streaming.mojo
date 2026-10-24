@@ -22,7 +22,7 @@ def main() raises:
     print("Canonical text consumed in chunks")
 
     var options = NumericOptions(absolute_bits=2, max_subdivisions=1024)
-    var real_checker = RealRootStreamChecker.from_dense(polynomial, options, work)
+    var real_checker = DescartesStreamChecker.from_dense(polynomial, options, work)
     var real_receipt = real_roots_exact_to(polynomial, options, real_checker, work)
     if not real_checker.finish(real_receipt, work):
         raise Error("incomplete real root witness")

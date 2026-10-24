@@ -1,14 +1,22 @@
 """Independent gcd corpus, including integer contents and an unlucky prime."""
-from apn_mojo import Integer
+from apn_mojo import Integer, Rational
 from polynomials import Budget, QQ, ZZ, ModInt, Modulus, NoContext, CoefficientRing, SparsePoly, DensePoly, MonomialOrder, prime, PolyErrorKind
 from polynomials._prs import _prs
 from support.gen import coefficient
 from support.rng import SplitMix64
-from polynomials._gcd import _gcd_value, _modular_primitive, _primitive_zz
+from polynomials._gcd import _gcd_value, _modular_primitive, _primitive_zz, _normalized
+from polynomials._sparse_gcd import _sparse_gcd
+from polynomials._sparse_brown import _sparse_brown_gcd
 from support.corpus import read_cases, parse_order, parse_polynomial, as_zz
 from support.check import Checker
-from polynomials.gcd import gcd
+from polynomials.gcd import gcd, gcd_value
+from polynomials._euclidean import _extended
+from polynomials._dense_ops import _gcd as _field_gcd
+from polynomials.division import divide_exact
+from support.gen import polynomial
 from polynomials.certificates import check_common_divisor, check_bezout, check_coprimality
+from polynomials._univariate_modular import _divides_both, _dense_divides, _Words
+from polynomials._ntt import _PRIMES
 
 def generated[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
     var work = Budget()
@@ -83,6 +91,292 @@ def modular_cases(mut c: Checker) raises:
         c.check(_modular_primitive(f, h, 0, work) == expected, "modular and PRS gcd agree")
 
 
+def dense_random[C: CoefficientRing](ctx: C.Context, degree: Int, mut rng: SplitMix64, mut work: Budget, bits: Int = 0) raises -> DensePoly[C]:
+    var values = List[C]()
+    for i in range(degree + 1):
+        var v = coefficient[C](ctx, rng.below(201) - 100, work)
+        if bits > 0:
+            # A random bits-bit magnitude with a random sign.
+            v = C.one(ctx)
+            for _ in range(bits - 1):
+                v = v.add(v, work)
+                if rng.below(2):
+                    v = v.add(C.one(ctx), work)
+            if rng.below(2):
+                v = v.neg(work)
+        if i == degree and v.is_zero():
+            v = C.one(ctx)
+        values.append(v^)
+    return DensePoly[C].from_coefficients(0, ctx, values^, work)
+
+
+def word_field_cases(mut c: Checker) raises:
+    """The word-size prime-field gcd matches the generic Euclidean loop."""
+    var work = Budget()
+    var rng = SplitMix64(4271)
+    # 1073741789 is the largest prime below 2^30, the bound of the 32-bit Montgomery kernel.
+    var moduli: List[UInt64] = [3, 5, 101, 65521, 1073741789, 1073741827, prime(0, work), prime(7, work)]
+    for modulus in moduli:
+        var ctx = Modulus(modulus, work)
+        for degree in [0, 1, 2, 7, 23, 60]:
+            var g = dense_random[ModInt](ctx, degree // 2, rng, work)
+            var f = g.mul(dense_random[ModInt](ctx, degree, rng, work), work)
+            var h = g.mul(dense_random[ModInt](ctx, degree - degree // 3, rng, work), work)
+            var expected = _extended(f, h, work, carry=False)[0].copy()
+            c.check(_field_gcd(f, h, work) == expected, "word field gcd matches the generic loop")
+            c.check(_field_gcd(f, DensePoly[ModInt](0, ctx.copy()), work) == _extended(f, DensePoly[ModInt](0, ctx.copy()), work, carry=False)[0], "word field gcd with zero")
+
+
+def transform_division_cases(mut c: Checker) raises:
+    """Integer divisibility from transform-prime quotients and a size bound matches the construction."""
+    var work = Budget()
+    var rng = SplitMix64(9157)
+    var primes = materialize[_PRIMES]()
+    # A constant divisible by the first twenty transform primes leaves every
+    # one of their quotients exact, so only the size bound can reject it.
+    var product = Integer(1)
+    for i in range(20):
+        product = product * Integer(Int(primes[i]))
+    var constants: List[Integer] = [Integer(1), Integer(-1), product^]
+    for bits in [0, 70, 300]:
+        for degree in [4, 6, 17, 31, 45, 90]:
+            var g = dense_random[ZZ](NoContext(), degree, rng, work, bits)
+            var f = g.mul(dense_random[ZZ](NoContext(), degree // 2 + 3, rng, work, bits), work)
+            var h = g.mul(dense_random[ZZ](NoContext(), degree + 5, rng, work, bits), work)
+            c.check(_divides_both(f, _Words(f, work), h, _Words(h, work), g, work), "transform division accepts two multiples")
+            for constant in constants:
+                var shifted = f.add(DensePoly[ZZ].from_coefficients(0, NoContext(), [ZZ(constant.copy())], work), work)
+                c.check(not _divides_both(shifted, _Words(shifted, work), h, _Words(h, work), g, work), "transform division rejects a multiple plus a constant")
+                c.check(not _divides_both(f, _Words(f, work), shifted, _Words(shifted, work), g, work), "transform division rejects a second dividend off by a constant")
+
+
+def small_division_cases(mut c: Checker) raises:
+    """The gcd's divisibility check agrees with integer long division on short divisors, near-misses and content mismatches."""
+    var work = Budget()
+    var rng = SplitMix64(9157)
+    for round in range(12):
+        var bits = 20 + 40 * (round % 4)
+        var g = dense_random[ZZ](NoContext(), 2 + round % 6, rng, work, bits=bits)
+        var f = g.mul(dense_random[ZZ](NoContext(), 3 + round % 5, rng, work, bits=bits + 30), work)
+        var h = g.mul(dense_random[ZZ](NoContext(), 4 + round % 3, rng, work, bits=bits), work)
+        var fw = _Words(f, work)
+        var hw = _Words(h, work)
+        c.check(_divides_both(f, fw, h, hw, g, work), "divisibility check accepts exact multiples")
+        var one = DensePoly[ZZ].from_coefficients(0, NoContext(), [ZZ.one(NoContext())], work)
+        var shifted = f.add(one, work)
+        c.check(_divides_both(shifted, _Words(shifted, work), h, hw, g, work) == _dense_divides(shifted, g, work), "divisibility check matches long division off a multiple")
+        # 3 g q is not a multiple of 2 g over the integers, though it is modulo every odd prime.
+        var scaled = f.scale(ZZ(Integer(3)), work)
+        var doubled = g.scale(ZZ(Integer(2)), work)
+        var expected = _dense_divides(scaled, doubled, work) and _dense_divides(h, doubled, work)
+        c.check(_divides_both(scaled, _Words(scaled, work), h, hw, doubled, work) == expected, "divisibility check matches long division with a content mismatch")
+
+
+def multi_prime_cases(mut c: Checker) raises:
+    """Planted gcds whose reconstruction needs several primes, against the PRS."""
+    var work = Budget()
+    var rng = SplitMix64(5303)
+    var order = MonomialOrder()
+    for round in range(10):
+        var bits = 40 + 30 * (round % 4)
+        var g = dense_random[ZZ](NoContext(), 3 + round % 5, rng, work, bits=bits).to_sparse(order, work)
+        var a = dense_random[ZZ](NoContext(), 4 + round % 3, rng, work, bits=bits).to_sparse(order, work)
+        var b = dense_random[ZZ](NoContext(), 2 + round % 4, rng, work, bits=bits).to_sparse(order, work)
+        var f = g.mul(a, work)
+        var h = g.mul(b, work)
+        var sequence = _prs(f, h, 0, False, work)
+        var last = sequence[len(sequence) - 1].polynomial.copy()
+        var cf = _primitive_zz(f, work)
+        var ch = _primitive_zz(h, work)
+        var expected = _primitive_zz(last, work)
+        c.check(_modular_primitive(cf, ch, 0, work) == expected, "multi-prime modular gcd matches the PRS")
+        c.check(gcd_value(f, h, work) == gcd(f, h, work).gcd, "gcd_value equals the gcd of the full result")
+
+
+def division_cases[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
+    """Exact sparse division on packed keys: exact multiples, inexact inputs, and the wide fallback."""
+    var work = Budget()
+    var rng = SplitMix64(7717)
+    var orders = List[MonomialOrder]()
+    orders.append(MonomialOrder(MonomialOrder.GREVLEX, [0, 1, 2, 3], work))
+    orders.append(MonomialOrder(MonomialOrder.LEX, [2, 0, 3, 1], work))
+    orders.append(MonomialOrder())
+    for order in orders:
+        for round in range(12):
+            var q = polynomial[C](ctx, order, rng, work, terms=3 + round % 5, variables=4, degree=2 + round % 3)
+            var g = polynomial[C](ctx, order, rng, work, terms=1 + round % 4, variables=4, degree=1 + round % 4)
+            if g.is_zero() or q.is_zero():
+                continue
+            var f = q.mul(g, work)
+            var got = divide_exact(f, g, work)
+            c.check(Bool(got) and got.value() == q, "packed exact quotient")
+            var r = polynomial[C](ctx, order, rng, work, terms=2, variables=4, degree=3)
+            var perturbed = f.add(r, work)
+            var inexact = divide_exact(perturbed, g, work)
+            if inexact:
+                c.check(inexact.value().mul(g, work) == perturbed, "accepted quotient is exact")
+            if len(g.variables(work)):
+                # q g + 1 is not a multiple of a nonconstant g.
+                c.check(not divide_exact(f.add(SparsePoly[C].constant(C.one(ctx), order, work), work), g, work), "inexact input rejected")
+    # Few terms in a large exponent box take the heap rather than a dense array.
+    for order in orders:
+        var one = SparsePoly[C].constant(C.one(ctx), order, work)
+        var x = SparsePoly[C].variable(0, order, ctx, work)
+        var y = SparsePoly[C].variable(1, order, ctx, work)
+        var z = SparsePoly[C].variable(3, order, ctx, work)
+        var q = x.pow(60, work).mul(y, work).add(y.pow(50, work).mul(z.pow(3, work), work), work).add(one, work)
+        var g = x.pow(7, work).mul(z, work).add(y.pow(9, work), work).add(one.add(one, work), work)
+        var got = divide_exact(q.mul(g, work), g, work)
+        c.check(Bool(got) and got.value() == q, "sparse quotient over a large box")
+        c.check(not divide_exact(q.mul(g, work).add(x, work), g, work), "sparse inexact input over a large box")
+    # Thirty variables of degree 31 need 150 key bits: the generic path answers.
+    var order = MonomialOrder()
+    var wide = SparsePoly[C].constant(C.one(ctx), order, work)
+    for v in range(30):
+        var power = SparsePoly[C].variable(Int64(v), order, ctx, work).pow(31, work)
+        if v < 2:
+            power = power.add(SparsePoly[C].constant(C.one(ctx), order, work), work)
+        wide = wide.mul(power, work)
+    var x = SparsePoly[C].variable(0, order, ctx, work).pow(31, work).add(SparsePoly[C].constant(C.one(ctx), order, work), work)
+    var quotient = divide_exact(wide, x, work)
+    c.check(Bool(quotient) and quotient.value().mul(x, work) == wide, "wide exponents fall back to the generic division")
+
+
+def shortcut_cases(mut c: Checker) raises:
+    """Deflated gcds and the one-image proof of a constant gcd in the main variable."""
+    var work = Budget()
+    var order = MonomialOrder(MonomialOrder.GREVLEX, [0, 1, 2], work)
+    var one = SparsePoly[ZZ].constant(ZZ.one(NoContext()), order, work)
+    var two = one.add(one, work)
+    var x = SparsePoly[ZZ].variable(0, order, NoContext(), work)
+    var y = SparsePoly[ZZ].variable(1, order, NoContext(), work)
+    var z = SparsePoly[ZZ].variable(2, order, NoContext(), work)
+    # Every exponent of x is even and every exponent of y a multiple of three.
+    var x2 = x.pow(2, work)
+    var y3 = y.pow(3, work)
+    var a = x2.add(y3, work).add(one, work)
+    var b = x2.sub(y3.scale(ZZ(Integer(3)), work), work).add(two, work)
+    var d = x2.mul(y3, work).sub(two, work)
+    var common = a.mul(a, work).scale(ZZ(Integer(6)), work)
+    var got = gcd_value(common.mul(b, work).scale(ZZ(Integer(5)), work), common.mul(d, work).scale(ZZ(Integer(4)), work), work)
+    c.check(got == common, "deflated gcd inflates back with its content")
+    # Mixed: z is not deflatable, x is.
+    var e = x2.mul(z, work).add(z.pow(3, work), work).add(one, work)
+    c.check(gcd_value(e.mul(a, work), e.mul(b, work), work) == e, "partial deflation")
+    # Coprime in x with a shared content in y and z: the content is the gcd.
+    var content = y.add(z, work).add(one, work)
+    var f = content.mul(x.mul(y, work).add(z, work).add(two, work), work)
+    var h = content.mul(x.pow(2, work).sub(y.mul(z, work), work), work).scale(ZZ(Integer(-3)), work)
+    c.check(gcd_value(f, h, work) == content, "constant image gcd leaves the content gcd")
+    # lc_x(f) = y - 2 vanishes at the first point y = 2, so the test must move on.
+    var g = y.sub(two, work).mul(x.pow(3, work), work).add(z, work).add(one, work)
+    var k = x.pow(2, work).add(y, work)
+    c.check(gcd_value(g, k, work) == one, "vanishing leading coefficient at the first point")
+    c.check(gcd_value(g.mul(k, work), k.mul(x.add(z, work), work), work) == k, "planted gcd after an unlucky point")
+
+
+def heuristic_cases(mut c: Checker) raises:
+    """Dense inputs take GCDHEU; the non-heuristic route must give the same gcd."""
+    var work = Budget()
+    var order = MonomialOrder(MonomialOrder.GREVLEX, [0, 1, 2, 3], work)
+    var one = SparsePoly[ZZ].constant(ZZ.one(NoContext()), order, work)
+    var x = SparsePoly[ZZ].variable(0, order, NoContext(), work)
+    var y = SparsePoly[ZZ].variable(1, order, NoContext(), work)
+    var z = SparsePoly[ZZ].variable(2, order, NoContext(), work)
+    var t = SparsePoly[ZZ].variable(3, order, NoContext(), work)
+    var u = one.add(x, work).add(y.scale(ZZ(Integer(2)), work), work).sub(z, work)
+    var v = one.scale(ZZ(Integer(3)), work).add(x, work).add(y, work).add(z, work).add(t, work)
+    var w = one.scale(ZZ(Integer(-5)), work).add(x.scale(ZZ(Integer(7)), work), work).sub(y, work).add(z, work).sub(t.scale(ZZ(Integer(4)), work), work)
+    for k in range(1, 3):
+        var g = u.pow(UInt64(k), work).scale(ZZ(Integer(6)), work)
+        var f = g.mul(v.pow(UInt64(k), work), work).scale(ZZ(Integer(5)), work)
+        var h = g.mul(w.pow(UInt64(k + 1), work), work).scale(ZZ(Integer(-4)), work)
+        var got = _gcd_value(f, h, work)
+        c.check(got == _gcd_value(f, h, work, heuristic=False), "heuristic gcd equals the PRS gcd")
+        c.check(got == g or got == g.neg(work), "heuristic gcd of planted dense products")
+        c.check(_gcd_value(f, v.pow(UInt64(k + 1), work).mul(w, work), work) == _gcd_value(f, v.pow(UInt64(k + 1), work).mul(w, work), work, heuristic=False), "heuristic gcd of a cofactor power")
+
+
+def brown_cases(mut c: Checker) raises:
+    """Few variables of high degree take Brown's dense modular gcd; QQ inputs take the integer paths."""
+    var work = Budget()
+    var order = MonomialOrder(MonomialOrder.GREVLEX, [0, 1, 2], work)
+    var one = SparsePoly[ZZ].constant(ZZ.one(NoContext()), order, work)
+    var x = SparsePoly[ZZ].variable(0, order, NoContext(), work)
+    var y = SparsePoly[ZZ].variable(1, order, NoContext(), work)
+    var z = SparsePoly[ZZ].variable(2, order, NoContext(), work)
+    var a = one.add(x, work).add(y, work).add(z, work)
+    var b = one.scale(ZZ(Integer(2)), work).add(x, work).sub(y, work).add(z.scale(ZZ(Integer(3)), work), work)
+    var d = x.mul(y, work).sub(z.pow(2, work), work).add(one.scale(ZZ(Integer(5)), work), work)
+    var e = x.pow(3, work).add(y.mul(z, work), work).sub(one.scale(ZZ(Integer(7)), work), work)
+    for k in [8, 9]:
+        var g = a.pow(UInt64(k), work).mul(b.pow(UInt64(k), work), work)
+        var f = g.mul(d, work).scale(ZZ(Integer(6)), work)
+        var h = g.mul(e, work).scale(ZZ(Integer(-4)), work)
+        var got = _gcd_value(f, h, work)
+        c.check(got == g.scale(ZZ(Integer(2)), work), "dense modular gcd of planted high-degree products")
+        var lone = _gcd_value(g.mul(d, work), g.mul(d, work).add(one, work), work)
+        c.check(lone == one, "dense modular gcd of coprime high-degree inputs")
+    # Rational multivariate inputs clear denominators and take the integer paths.
+    var qorder = MonomialOrder(MonomialOrder.GREVLEX, [0, 1, 2], work)
+    var qx = SparsePoly[QQ].variable(0, qorder, NoContext(), work)
+    var qy = SparsePoly[QQ].variable(1, qorder, NoContext(), work)
+    var qone = SparsePoly[QQ].constant(QQ.one(NoContext()), qorder, work)
+    var half = qone.scale(QQ(Rational(1, 2)), work)
+    var common = qx.add(qy.scale(QQ(Rational(2, 3)), work), work).add(half, work)
+    var qf = common.mul(qx.sub(qy, work), work).scale(QQ(Rational(5, 7)), work)
+    var qh = common.mul(qx.mul(qy, work).add(qone, work), work).scale(QQ(Rational(-3, 4)), work)
+    c.check(_gcd_value(qf, qh, work) == common, "monic rational multivariate gcd")
+    var qd = qf.mul(qf, work)
+    c.check(_gcd_value(qd, qf.mul(qh, work), work) == _gcd_value(qd, qf.mul(qh, work), work, heuristic=False), "rational gcd matches the route without the heuristic")
+
+
+def sparse_brown_cases(mut c: Checker) raises:
+    """Sparse multivariate gcds (sparse Brown first) agree with sparse modular interpolation."""
+    var work = Budget()
+    var rng = SplitMix64(6421)
+    var order = MonomialOrder(MonomialOrder.LEX, [0, 1, 2, 3, 4], work)
+    for round in range(8):
+        var g = polynomial[ZZ](NoContext(), order, rng, work, terms=4 + round % 3, variables=5, degree=2 + round % 2, coefficient_bound=9)
+        var a = polynomial[ZZ](NoContext(), order, rng, work, terms=3 + round % 4, variables=5, degree=2, coefficient_bound=9)
+        var b = polynomial[ZZ](NoContext(), order, rng, work, terms=3 + round % 2, variables=5, degree=3, coefficient_bound=9)
+        if g.is_zero() or a.is_zero() or b.is_zero():
+            continue
+        var f = g.mul(a, work)
+        var h = g.mul(b, work)
+        var expected = _normalized(_sparse_gcd(f, h, work), work)
+        c.check(_gcd_value(f, h, work) == expected, "sparse Brown gcd equals sparse modular interpolation")
+
+
+def skeleton_cases(mut c: Checker) raises:
+    """Sparse Brown's skeleton images: leading coefficients in x0 of several terms, and factors vanishing at small points."""
+    var work = Budget()
+    var order = MonomialOrder(MonomialOrder.LEX, [0, 1, 2, 3, 4, 5], work)
+    var variables: List[Int64] = [0, 1, 2, 3, 4, 5]
+    var gcds: List[String] = ["x0^2*x3*x5 - x0^2*x4 + x0*x1*x2 - 7*x2*x5 + x3 - 1", "x0^3*x5 - x0^3 + x0*x1*x4 - 2*x0*x1 + x2*x3 - 1", "x0*x1*x2*x3*x4*x5 + x0*x2 - 5*x1*x4^2 + x5^3 - 2"]
+    var lefts: List[String] = ["x0*x5 + x1^2 - x4 + 2", "x0 + x5 + 1", "x0^2*x3 - x1*x5 + x2^2 + 4"]
+    var rights: List[String] = ["x0*x1 - x2*x3^2 + x5 - 1", "x0^2 - x1*x4 + 3", "x0*x4^2 + x1*x2*x3 - 3*x5 + 1"]
+    for i in range(len(gcds)):
+        var g = parse_polynomial(gcds[i], order, work)
+        var f = as_zz(g.mul(parse_polynomial(lefts[i], order, work), work), work)
+        var h = as_zz(g.mul(parse_polynomial(rights[i], order, work), work), work)
+        var expected = _normalized(_sparse_gcd(f, h, work), work)
+        var got = _sparse_brown_gcd(f, h, variables, work)
+        c.check(Bool(got) and _normalized(got.value(), work) == expected, "sparse Brown with skeleton images")
+    var rng = SplitMix64(9137)
+    for round in range(6):
+        var g = polynomial[ZZ](NoContext(), order, rng, work, terms=6 + round % 3, variables=6, degree=3, coefficient_bound=20)
+        var a = polynomial[ZZ](NoContext(), order, rng, work, terms=4, variables=6, degree=2, coefficient_bound=20)
+        var b = polynomial[ZZ](NoContext(), order, rng, work, terms=5, variables=6, degree=2, coefficient_bound=20)
+        if g.is_zero() or a.is_zero() or b.is_zero():
+            continue
+        var f = g.mul(a, work)
+        var h = g.mul(b, work)
+        var expected = _normalized(_sparse_gcd(f, h, work), work)
+        var got = _sparse_brown_gcd(f, h, variables, work)
+        c.check(Bool(got) and _normalized(got.value(), work) == expected, "sparse Brown with skeleton images, random")
+
+
 def main() raises:
     var c = Checker("gcd")
     var work = Budget()
@@ -126,4 +420,16 @@ def main() raises:
     generated[QQ](NoContext(), c)
     generated[ModInt](Modulus(101, work), c)
     modular_cases(c)
+    word_field_cases(c)
+    transform_division_cases(c)
+    small_division_cases(c)
+    multi_prime_cases(c)
+    division_cases[ZZ](NoContext(), c)
+    division_cases[QQ](NoContext(), c)
+    division_cases[ModInt](Modulus(101, work), c)
+    shortcut_cases(c)
+    heuristic_cases(c)
+    brown_cases(c)
+    sparse_brown_cases(c)
+    skeleton_cases(c)
     c.finish()

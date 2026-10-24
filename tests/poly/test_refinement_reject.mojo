@@ -24,7 +24,7 @@ def main() raises:
     assert_false(checker.accept(bad^, budget))
     checker = dense.enclose_checker(p, 1, context=bc)
     bad = first.copy()
-    bad.refinement.value().real.sequence.polynomials.clear()
+    bad.refinement.value().real.low = QQ(Rational(-3))
     assert_false(checker.accept(bad^, budget))
     checker = dense.enclose_checker(p, 1, context=bc)
     bad = first.copy()

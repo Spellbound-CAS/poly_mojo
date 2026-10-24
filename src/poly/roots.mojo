@@ -7,11 +7,11 @@ from std.memory import ArcPointer
 from std.iter import Iterable, Iterator, StopIteration
 from apn_mojo import Rational
 from polynomials import Budget, PolyError, NoContext, DensePoly, RealAlgebraic, AlgebraicRootsCertificate, algebraic_roots, check_algebraic_roots, real_rational
-from polynomials import RootCountCertificate, count_roots as _count_roots, check_root_count
-from polynomials import NumericOptions, NumericOutcome, RealRootResult, ComplexRootResult
+from polynomials import DescartesCountCertificate, descartes_count as _descartes_count, check_descartes_count
+from polynomials import NumericOptions, NumericOutcome, RealRootResult, ComplexRootResult, DescartesRootResult
 from polynomials import check_real_roots_exact, check_complex_roots_exact, refine_real_roots_exact, refine_complex_roots_exact
 from ._common import _Ring, _allocation, _charge_size, Values
-from .algebraic import Real, _plain, _copy_witness, _same_witness
+from .algebraic import Real, _plain, _normal, _copy_witness, _same_witness
 from polynomials import check_real_algebraic
 
 
@@ -136,8 +136,30 @@ def _exact(p: DensePoly[QQ], mut budget: Budget) raises PolyError -> ExactRoots:
     var proof = algebraic_roots(coefficients, budget)
     _allocation[Real](len(proof.roots), budget)
     var values = List[Real](capacity=len(proof.roots))
-    for root in proof.roots:
-        values.append(_plain(_copy_witness(root, budget), budget))
+    # Candidates are every real root of the annihilator on its monic
+    # irreducible factors, in increasing order: a root's index among its
+    # polynomial's real roots is the number of earlier candidates sharing it.
+    var seen = List[Int]()
+    var counts = List[Int]()
+    var k = 0
+    for j in range(len(proof.candidates)):
+        budget.charge(1)
+        ref p = proof.candidates[j].polynomial
+        var slot = -1
+        for t in range(len(seen)):
+            budget.charge(1)
+            ref q = proof.candidates[seen[t]].polynomial
+            if q.degree() == p.degree() and q == p:
+                slot = t
+                break
+        if slot < 0:
+            slot = len(seen)
+            seen.append(j)
+            counts.append(0)
+        if k < len(proof.accepted) and proof.accepted[k] == j:
+            values.append(_normal(_copy_witness(proof.roots[k], budget), counts[slot], budget))
+            k += 1
+        counts[slot] += 1
     _allocation[_ExactData](1, budget)
     return ExactRoots(ArcPointer(_ExactData(coefficients^, proof^)), Values[Real, 4](values^, 0, budget))
 
@@ -145,12 +167,12 @@ def _exact(p: DensePoly[QQ], mut budget: Budget) raises PolyError -> ExactRoots:
 @fieldwise_init
 struct _CountData(Copyable, Movable):
     var polynomial: DensePoly[QQ]
-    var proof: RootCountCertificate
+    var proof: DescartesCountCertificate
 
 
 @fieldwise_init
 struct RootCount( _Archive, Copyable, Movable):
-    """A distinct-root count and its independently checkable Sturm evidence."""
+    """A distinct-root count and its independently checkable Descartes evidence."""
     var _data: ArcPointer[_CountData]
 
     def count(self) -> Int:
@@ -161,11 +183,11 @@ struct RootCount( _Archive, Copyable, Movable):
         """
         return self._data[].proof.count
 
-    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] RootCountCertificate:
+    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] DescartesCountCertificate:
         """Borrow the root-count certificate.
 
         Returns:
-            Immutable endpoints, recurrence, and count evidence.
+            Immutable endpoints, count, and the complete Descartes isolation behind it.
         """
         return self._data[].proof
 
@@ -199,7 +221,7 @@ struct RootCount( _Archive, Copyable, Movable):
         return Self(field662^)
 
 def _count(var p: DensePoly[QQ], low: QQ, high: QQ, mut budget: Budget) raises PolyError -> RootCount:
-    var proof = _count_roots(p, low, high, budget)
+    var proof = _descartes_count(p, low, high, budget)
     _allocation[_CountData](1, budget)
     return RootCount(ArcPointer(_CountData(p^, proof^)))
 
@@ -253,12 +275,12 @@ def check(result: RootCount, mut budget: Budget) raises PolyError -> Bool:
         budget: The shared work allowance for preparation and computation.
 
     Returns:
-        Whether the Sturm evidence establishes the count.
+        Whether the Descartes evidence establishes the count.
 
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
-    return check_root_count(result._data[].polynomial, result._data[].proof, budget)
+    return check_descartes_count(result._data[].polynomial, result._data[].proof, budget)
 
 
 def check(result: RootCount, *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Bool:
@@ -269,7 +291,7 @@ def check(result: RootCount, *, max_steps: UInt64 = UInt64.MAX) raises PolyError
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
 
     Returns:
-        Whether the Sturm evidence establishes the count.
+        Whether the Descartes evidence establishes the count.
 
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
@@ -278,11 +300,15 @@ def check(result: RootCount, *, max_steps: UInt64 = UInt64.MAX) raises PolyError
     return check(result, budget)
 
 
+comptime _REAL_COVER_FORMAT = "format descartes-1"
+"""The archive marker of a real cover's evidence format."""
+
+
 @fieldwise_init
 struct _RealCoverData[k: Int](Copyable, Movable):
     var polynomial: DensePoly[_Ring[Self.k]]
     var options: NumericOptions
-    var proof: RealRootResult
+    var proof: DescartesRootResult
 
 
 @fieldwise_init
@@ -294,11 +320,11 @@ struct RealCover[k: Int]( _Archive, Copyable, Movable):
     """
     var _data: ArcPointer[_RealCoverData[Self.k]]
 
-    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] RealRootResult:
-        """Borrow the full cover evidence, including unresolved regions.
+    def evidence(self) -> ref[ImmOrigin(origin_of(self._data[].proof))] DescartesRootResult:
+        """Borrow the full Descartes evidence, including unresolved leaves.
 
         Returns:
-            The immutable core root-cover certificate.
+            The immutable core real-root result and certificate.
         """
         return self._data[].proof
 
@@ -357,6 +383,8 @@ struct RealCover[k: Int]( _Archive, Copyable, Movable):
         comptime _ArchiveDomain = BallDomain
         comptime _ArchiveProof = Int
         _result_io._depth(depth, budget)
+        # The evidence format: earlier archives held a Sturm cell cover.
+        writer.line(_REAL_COVER_FORMAT, sink, budget)
         _result_io._write_node[_RealCoverData[Self.k], _ArchiveRing, _ArchiveDomain, _ArchiveProof](self._data[], writer, sink, budget, depth + 1)
 
     @staticmethod
@@ -366,6 +394,8 @@ struct RealCover[k: Int]( _Archive, Copyable, Movable):
         comptime _ArchiveDomain = BallDomain
         comptime _ArchiveProof = Int
         _result_io._depth(depth, budget)
+        if reader.line(budget) != _REAL_COVER_FORMAT:
+            raise PolyError(PolyErrorKind.ENCODING, "real cover archive predates Descartes evidence; recompute the cover")
         var field669 = _result_io._read_node[_RealCoverData[Self.k], _ArchiveRing, _ArchiveDomain, _ArchiveProof](reader, budget, depth + 1)
         _allocation[_RealCoverData[Self.k]](1, budget)
         var field668 = ArcPointer(field669^)
@@ -428,7 +458,9 @@ def refine[k: Int](result: RealCover[k], options: NumericOptions, mut budget: Bu
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
-    var proof = refine_real_roots_exact(result._data[].polynomial, result._data[].proof, result._data[].options, options, budget, complete_only=complete_only)
+    # A cover's evidence was made here or checked when restored, so the
+    # brackets are tightened without checking it again.
+    var proof = refine_real_roots_exact(result._data[].polynomial, result._data[].proof, result._data[].options, options, budget, complete_only=complete_only, trusted=True)
     from ._interop import _dense_copy
     var p = _dense_copy(result._data[].polynomial, 0, budget)
     _allocation[_RealCoverData[k]](1, budget)
@@ -647,21 +679,34 @@ def intervals[k: Int](result: RealCover[k], mut budget: Budget) raises PolyError
         budget: The shared work allowance for preparation and computation.
 
     Returns:
-        (low, high, distinct count) tuples, omitting zero-count cells. A count of -1 remains unresolved.
+        (low, high, 1) for each distinct root in increasing order: an open interval containing it, or low == high for an exact rational root. Unresolved pieces appear as (low, high, -1).
 
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
+    ref certificate = result.evidence().certificate
     var values = List[Tuple[Rational, Rational, Int]]()
-    _allocation[Tuple[Rational, Rational, Int]](len(result.evidence().cells), budget)
-    values.reserve(len(result.evidence().cells))
-    for cell in result.evidence().cells:
+    _allocation[Tuple[Rational, Rational, Int]](len(certificate.leaves) + len(certificate.exact_roots), budget)
+    var next_root = 0
+    var next = 0
+    for leaf in certificate.leaves:
         budget.charge(1)
-        if cell.count == 0:
+        if next_root < len(certificate.exact_roots) and certificate.exact_roots[next_root] == leaf.low:
+            ref root = certificate.exact_roots[next_root]
+            _charge_size(2 * root.size(), budget)
+            values.append((root.value.copy(), root.value.copy(), 1))
+            next_root += 1
+        if not leaf.resolved:
+            _charge_size(leaf.low.size(), budget)
+            _charge_size(leaf.high.size(), budget)
+            values.append((leaf.low.value.copy(), leaf.high.value.copy(), -1))
             continue
-        _charge_size(cell.interval.real_low.size(), budget)
-        _charge_size(cell.interval.real_high.size(), budget)
-        values.append((cell.interval.real_low.value.copy(), cell.interval.real_high.value.copy(), cell.count))
+        for _ in range(leaf.variations):
+            ref bracket = certificate.brackets[next]
+            _charge_size(bracket.low.size(), budget)
+            _charge_size(bracket.high.size(), budget)
+            values.append((bracket.low.value.copy(), bracket.high.value.copy(), 1))
+            next += 1
     return values^
 
 
@@ -676,7 +721,7 @@ def intervals[k: Int](result: RealCover[k], *, max_steps: UInt64 = UInt64.MAX) r
         max_steps: The complete call's work allowance; defaults to UInt64.MAX.
 
     Returns:
-        (low, high, distinct count) tuples, omitting zero-count cells. A count of -1 remains unresolved.
+        (low, high, 1) for each distinct root in increasing order: an open interval containing it, or low == high for an exact rational root. Unresolved pieces appear as (low, high, -1).
 
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
@@ -748,7 +793,7 @@ from apn_mojo import BallContext
 
 @fieldwise_init
 struct Multiplicities[k: Int]( _Archive, Copyable, Movable):
-    """Exact multiplicities aligned with the positive intervals of a real root cover.
+    """Exact multiplicities aligned with the root intervals of a real root cover.
 
     Parameters:
         k: The inferred exact coefficient kind.
@@ -761,12 +806,12 @@ struct Multiplicities[k: Int]( _Archive, Copyable, Movable):
         """Return shared multiplicities in the same order as roots.intervals.
 
         Returns:
-            Multiplicities aligned with the positive intervals returned by roots.intervals.
+            Multiplicities aligned with the intervals returned by roots.intervals.
         """
         return self._values.copy()
 
     def evidence(self) -> ref[ImmOrigin(origin_of(self._proof[]))] RootMultiplicityCertificate:
-        """Borrow the squarefree, Bezout and Sturm witnesses.
+        """Borrow the squarefree decomposition and the block of each root.
 
         Returns:
             An immutable reference to the retained core evidence.
@@ -836,8 +881,7 @@ def multiplicities[k: Int](cover: RealCover[k], mut budget: Budget) raises PolyE
     var counts = List[Int](capacity=len(proof.multiplicities))
     for i in range(len(proof.multiplicities)):
         budget.charge(1)
-        if cover._data[].proof.cells[i].count:
-            counts.append(proof.multiplicities[i])
+        counts.append(proof.multiplicities[i])
     _allocation[RootMultiplicityCertificate](1, budget)
     return Multiplicities[k](cover.copy(), ArcPointer(proof^), Values[Int, 0](counts^, 0, budget))
 
@@ -881,14 +925,13 @@ def check[k: Int](result: Multiplicities[k], mut budget: Budget) raises PolyErro
     ref data = result._cover._data[]
     if not check_real_root_multiplicities(data.polynomial, data.proof, data.options, result._proof[], budget):
         return False
-    var position = 0
-    for i in range(len(data.proof.cells)):
+    if len(result._values) != len(result._proof[].multiplicities):
+        return False
+    for i in range(len(result._values)):
         budget.charge(1)
-        if data.proof.cells[i].count:
-            if position >= len(result._values) or result._values[position] != result._proof[].multiplicities[i]:
-                return False
-            position += 1
-    return position == len(result._values)
+        if result._values[i] != result._proof[].multiplicities[i]:
+            return False
+    return True
 
 
 def check[k: Int](result: Multiplicities[k], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Bool:

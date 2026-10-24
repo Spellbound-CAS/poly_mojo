@@ -2,7 +2,7 @@
 from std.memory import ArcPointer
 from std.format import Writer
 from apn_mojo import Rational
-from polynomials import Budget, PolyError, PolyErrorKind, QQ, NoContext, DensePoly, SparsePoly, CoefficientField, SturmSequence
+from polynomials import Budget, PolyError, PolyErrorKind, QQ, NoContext, DensePoly, SparsePoly, CoefficientField, isolate_real_roots
 from polynomials import RealAlgebraic, AlgebraicArithmeticCertificate, AlgebraicEvaluationCertificate, AlgebraicPolynomialEvaluation
 from polynomials import real_root, evaluate_dense, algebraic_add, algebraic_subtract, algebraic_multiply, algebraic_negate, algebraic_inverse
 from std.sys import size_of
@@ -30,6 +30,36 @@ struct _Canonical(Copyable, Movable):
     var zero: Bool
     var bytes: Int
 
+def _root_index(value: RealAlgebraic, mut budget: Budget) raises PolyError -> Int:
+    # The number of real roots of the minimal polynomial below the value: its
+    # isolating intervals are disjoint, and narrowing the value by sign until
+    # each one holds it or lies clear of it leaves exactly one holding it.
+    var isolation = isolate_real_roots(value.polynomial, budget)
+    var low = value.low.copy()
+    var high = value.high.copy()
+    var low_sign = evaluate_dense(value.polynomial, low, budget).value.sign()
+    var half = QQ(Rational(2)).inverse(budget)
+    while True:
+        budget.charge(1)
+        var below = 0
+        var settled = True
+        for q in isolation.exact_roots:
+            if q.sub(low, budget).value.sign() < 0:
+                below += 1
+        for interval in isolation.intervals:
+            if interval.high.sub(low, budget).value.sign() <= 0:
+                below += 1
+            elif interval.low.sub(high, budget).value.sign() < 0 and not (interval.low.sub(low, budget).value.sign() <= 0 and high.sub(interval.high, budget).value.sign() <= 0):
+                settled = False
+        if settled:
+            return below
+        var middle = low.add(high, budget).mul(half, budget)
+        if evaluate_dense(value.polynomial, middle, budget).value.sign() == low_sign:
+            low = middle^
+        else:
+            high = middle^
+
+
 def _make(var data: _ValueData, mut budget: Budget) raises PolyError -> Real:
     # Normalize at construction so fixed-signature equality never runs a solver.
     if not check_real_algebraic(data.plain, budget):
@@ -41,24 +71,23 @@ def _make(var data: _ValueData, mut budget: Budget) raises PolyError -> Real:
         var comparison = algebraic_compare(value, data.plain, budget)
         if comparison.relation != 0 or not check_algebraic_comparison(value, data.plain, comparison, budget):
             raise PolyError(PolyErrorKind.DOMAIN, "algebraic normalization changed the coefficient")
-    var index = 0
-    var previous = 0
+    var index = 0 if value.rational else _root_index(value, budget)
+    return _finish(value^, index, data^, budget)
+
+
+def _normal(var value: RealAlgebraic, index: Int, mut budget: Budget) raises PolyError -> Real:
+    """A Real from a witness already on its monic irreducible polynomial, the index-th real root of it.
+
+    Library producers that isolated every real root of that polynomial in
+    order know the index and skip renormalization.
+    """
+    _allocation[_ValueData](1, budget)
+    var data = _ValueData(value.copy(), None, None, None, None, None)
+    return _finish(value^, 0 if value.rational else index, data^, budget)
+
+
+def _finish(var value: RealAlgebraic, index: Int, var data: _ValueData, mut budget: Budget) raises PolyError -> Real:
     var size = _sum(value.low.size(), value.high.size())
-    for p in value.sequence.polynomials:
-        var sign = evaluate_dense(p, value.low, budget).value.sign()
-        if sign:
-            if previous and sign != previous:
-                index += 1
-            previous = sign
-        for coefficient_index in range(len(p.coefficients)):
-            ref c = p.coefficients[coefficient_index]
-            _charge_size(c.size(), budget)
-            size = _sum(size, c.size())
-    for p in value.sequence.quotients:
-        for coefficient_index in range(len(p.coefficients)):
-            ref c = p.coefficients[coefficient_index]
-            _charge_size(c.size(), budget)
-            size = _sum(size, c.size())
     for coefficient_index in range(len(value.polynomial.coefficients)):
         ref c = value.polynomial.coefficients[coefficient_index]
         _charge_size(c.size(), budget)
@@ -75,7 +104,7 @@ def _constant(value: Int) -> Real:
     var p = DensePoly[QQ](0, NoContext())
     var values: List[QQ] = [QQ(Rational(-value)), QQ(Rational(1))]
     p.coefficients = values^
-    var witness = RealAlgebraic(p^, QQ(Rational(value)), QQ(Rational(value)), SturmSequence(List[DensePoly[QQ]](), List[DensePoly[QQ]]()), True)
+    var witness = RealAlgebraic(p^, QQ(Rational(value)), QQ(Rational(value)), True)
     return Real(ArcPointer(_Canonical(witness.polynomial.copy(), 0, value == 0, 8)), ArcPointer(_ValueData(witness^, None, None, None, None, None)), None, None)
 
 def _copy_witness(value: RealAlgebraic, mut budget: Budget) raises PolyError -> RealAlgebraic:
@@ -85,18 +114,6 @@ def _copy_witness(value: RealAlgebraic, mut budget: Budget) raises PolyError -> 
         _charge_size(c.size(), budget)
     _charge_size(value.low.size(), budget)
     _charge_size(value.high.size(), budget)
-    _allocation[DensePoly[QQ]](len(value.sequence.polynomials), budget)
-    _allocation[DensePoly[QQ]](len(value.sequence.quotients), budget)
-    for p in value.sequence.polynomials:
-        _allocation[QQ](len(p.coefficients), budget)
-        for coefficient_index in range(len(p.coefficients)):
-            ref c = p.coefficients[coefficient_index]
-            _charge_size(c.size(), budget)
-    for p in value.sequence.quotients:
-        _allocation[QQ](len(p.coefficients), budget)
-        for coefficient_index in range(len(p.coefficients)):
-            ref c = p.coefficients[coefficient_index]
-            _charge_size(c.size(), budget)
     return value.copy()
 
 

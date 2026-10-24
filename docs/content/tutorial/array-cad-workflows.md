@@ -86,7 +86,7 @@ sign-invariant cells.
 
 These operations accept integer, rational, and real algebraic coefficients.
 Query points and assignments can also contain exact algebraic values. Complex
-and modular coefficients are rejected. Lazard projection is the default; `lazard=False` selects McCallum projection. All preparation and
+and modular coefficients are rejected. Lazard projection is their default; `lazard=False` selects McCallum projection. All preparation and
 checking share a supplied `Budget`, or use `max_steps=` for a single call.
 See the [CAD reference](../reference/array-cad.md) for signatures.
 

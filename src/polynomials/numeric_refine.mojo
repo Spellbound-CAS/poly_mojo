@@ -10,6 +10,7 @@ from .numeric_bounds import NumericBox, _box_charge
 from .numeric_options import NumericOptions, NumericOutcome
 from .numeric_evaluate import EnclosureEvaluation, _exact_dense_boxes, _numeric_dense_boxes
 from ._numeric_roots import _root_degree, _rational_polynomial, _derivative_boxes
+from .descartes import DescartesRootResult, _exact_input, _descartes_resume
 from .numeric_real_roots import RealRootCell, RealRootResult, _check_real, _real_roots, _real_cell, _refine_real_cells
 from .numeric_complex_roots import ComplexRootRegion, ComplexRootResult, _check_complex, _complex_roots, _representative, _refine_complex_regions
 
@@ -110,27 +111,28 @@ def _resume_complex(coefficients: List[NumericBox], previous: ComplexRootResult,
     return _refine_complex_regions(coefficients, representative, pending^, degree.value(), options, subdivisions, budget, complete_only)
 
 
-def refine_real_roots_exact[C: CoefficientRing](poly: DensePoly[C], previous: RealRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RealRootResult:
-    """Resume real refinement after validating the previous root evidence.
+def refine_real_roots_exact[C: CoefficientRing](poly: DensePoly[C], previous: DescartesRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False, trusted: Bool = False) raises PolyError -> DescartesRootResult:
+    """Tighten a validated Descartes result to new widths.
 
     Parameters:
         C: ZZ or QQ.
 
     Args:
-        poly: The original polynomial or coefficient family.
-        previous: The prior result; certified satisfactory regions are retained.
+        poly: The original exact polynomial.
+        previous: The prior result; its certificate is checked first.
         previous_options: Options describing the previous result's flags.
-        options: New targets and an additional subdivision allowance.
+        options: New targets and subdivision allowance.
         budget: The shared work allowance.
         complete_only: Raise unless every new requested guarantee succeeds.
+        trusted: Skip checking previous, for evidence this library produced or already checked; refinement keeps a valid certificate valid.
 
     Returns:
-        A refined cover; empty inconclusive results restart, and unresolved real cells merge before retrying.
+        The same leaves with narrower brackets; an incomplete previous result restarts under the new options.
 
     Raises:
         PolyError: DOMAIN for invalid prior evidence, LIMIT or CAPACITY on work limits.
     """
-    return _resume_real(_exact_dense_boxes(poly, budget), previous, previous_options, options, budget, complete_only)
+    return _descartes_resume(_exact_input(poly, budget), previous, previous_options, options, budget, complete_only, trusted)
 
 
 def refine_real_roots_numeric[D: NumericDomain](poly: NumericDensePoly[D], previous: RealRootResult, previous_options: NumericOptions, options: NumericOptions, mut budget: Budget, *, complete_only: Bool = False) raises PolyError -> RealRootResult:

@@ -1,5 +1,7 @@
 """Every degree through twice the Karatsuba threshold and sparse cross-checks."""
+from apn_mojo import Integer
 from polynomials import Budget, PolyErrorKind, CoefficientRing, ZZ, QQ, ModInt, Modulus, NoContext, MonomialOrder, SparsePoly, DensePoly
+from polynomials._nmod import _field, _mul, _schoolbook, _to, _uses_transform, _TRANSFORM, _TRANSFORM_FEW, _TRANSFORM_WIDE
 from support.check import Checker
 from support.gen import coefficient
 from support.rng import SplitMix64
@@ -87,12 +89,100 @@ def check_ring[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
     except e:
         c.check(e.kind == PolyErrorKind.LIMIT, "dense budget exhaustion")
 
+def transforms[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
+    """Transform products agree with schoolbook products across lengths, coefficient sizes and squares."""
+    var work = Budget()
+    var rng = SplitMix64(31337)
+    for bits in [8, 64, 300]:
+        for lengths in [(32, 32), (33, 100), (257, 40), (300, 301)]:
+            var aa = List[C]()
+            var bb = List[C]()
+            for i in range(lengths[0] + lengths[1]):
+                var value: C
+                comptime if C == ZZ:
+                    var x = Integer(Int64(rng.next() >> 1))
+                    var shift = bits - 63
+                    if shift > 0:
+                        x = (x << Integer(shift)) + Integer(Int64(rng.next() >> 1))
+                    elif shift < 0:
+                        x = x >> Integer(-shift)
+                    value = rebind_var[C](ZZ(-x if rng.below(2) else x))
+                else:
+                    var p = rebind[Modulus](ctx).value
+                    value = rebind_var[C](ModInt(rng.next() % p if bits != 8 else p - 1 - UInt64(rng.below(3)), rebind[Modulus](ctx)))
+                if i < lengths[0]:
+                    aa.append(value^)
+                else:
+                    bb.append(value^)
+            var a = DensePoly[C].from_coefficients(7, ctx, aa^, work)
+            var b = DensePoly[C].from_coefficients(7, ctx, bb^, work)
+            c.check(a.mul(b, work) == a.mul_schoolbook(b, work), String("transform product, ", bits, " bits, lengths ", lengths[0], " and ", lengths[1]))
+            c.check(a.mul(a, work) == a.mul_schoolbook(a, work), "transform square")
+    # Extreme values: all coefficients at the top of their range, which exercises the CRT's symmetric range.
+    var top = List[C]()
+    for _ in range(64):
+        comptime if C == ZZ:
+            top.append(rebind_var[C](ZZ((Integer(1) << Integer(255)) - Integer(1))))
+        else:
+            top.append(rebind_var[C](ModInt(rebind[Modulus](ctx).value - 1, rebind[Modulus](ctx))))
+    var t = DensePoly[C].from_coefficients(7, ctx, top^, work)
+    c.check(t.mul(t.neg(work), work) == t.mul_schoolbook(t.neg(work), work), "transform product at the coefficient bounds")
+
+
+def zz_thresholds(mut c: Checker) raises:
+    """ZZ products on both sides of the early-transform lengths (16 below 64 bits, 24) agree with schoolbook."""
+    var work = Budget()
+    for bits in [62, 63, 64, 200]:
+        for n in [15, 16, 23, 24, 31, 32]:
+            var a = List[ZZ]()
+            var b = List[ZZ]()
+            for k in range(n):
+                var top = (Integer(1) << Integer(bits - 1)) + Integer(k * 7919 + 13)
+                a.append(ZZ(-top if k % 3 == 1 else top))
+                b.append(ZZ(top - Integer(k * 104729)))
+            var pa = DensePoly[ZZ].from_coefficients(0, NoContext(), a^, work)
+            var pb = DensePoly[ZZ].from_coefficients(0, NoContext(), b^, work)
+            c.check(pa.mul(pb, work) == pa.mul_schoolbook(pb, work), String("ZZ product at ", n, " terms of ", bits, " bits"))
+            c.check(pa.mul(pa, work) == pa.mul_schoolbook(pa, work), String("ZZ square at ", n, " terms of ", bits, " bits"))
+
+
+def native_transforms(mut c: Checker) raises:
+    """Montgomery residue products switch to transforms at their thresholds and agree with schoolbook."""
+    var work = Budget()
+    var rng = SplitMix64(808)
+    for p in [UInt64(3), UInt64(2147483647), (UInt64(1) << 62) - 57, UInt64(4611685941117976577), UInt64(268435399), (UInt64(1) << 40) - 87, (UInt64(1) << 56) - 5]:
+        var f = _field(p)
+        # Each prime switches at one of the three thresholds; check both sides of it.
+        var t = _TRANSFORM_FEW if _uses_transform(_TRANSFORM_FEW, p) else (_TRANSFORM_WIDE if _uses_transform(_TRANSFORM_WIDE, p) else _TRANSFORM)
+        c.check(_uses_transform(t, p) and not _uses_transform(t - 1, p), String("transform threshold modulo ", p))
+        var sizes: List[Tuple[Int, Int]] = [(t - 1, t + 5), (t, t), (t + 1, 3 * t), (2 * t, 2 * t)]
+        for lengths in sizes:
+            var a = List[UInt64]()
+            var b = List[UInt64]()
+            for _ in range(lengths[0]):
+                a.append(_to(rng.next(), f))
+            for _ in range(lengths[1]):
+                b.append(_to(rng.next(), f))
+            a[len(a) - 1] = f.one
+            b[len(b) - 1] = f.one
+            var expected = _schoolbook(a, b, len(a) + len(b), f, work)
+            c.check(_mul(a, b, f, work) == expected, String("native transform product modulo ", p))
+            c.check(_mul(a, a, f, work) == _schoolbook(a, a, 2 * len(a), f, work), "native transform square")
+
+
 def main() raises:
     var c = Checker("dense")
     var work = Budget()
     check_ring[ZZ](NoContext(), c)
     check_ring[QQ](NoContext(), c)
     check_ring[ModInt](Modulus(101, work), c)
+    native_transforms(c)
+    zz_thresholds(c)
+    transforms[ZZ](NoContext(), c)
+    transforms[ModInt](Modulus(2, work), c)
+    transforms[ModInt](Modulus(101, work), c)
+    transforms[ModInt](Modulus((UInt64(1) << 62) - 57, work), c)
+    transforms[ModInt](Modulus(4611685941117976577, work), c)
     var x = SparsePoly[ZZ].variable(1, MonomialOrder(), NoContext(), work)
     var y = SparsePoly[ZZ].variable(2, MonomialOrder(), NoContext(), work)
     try:

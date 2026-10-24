@@ -1,6 +1,6 @@
 """Equivalent exact coordinate witnesses share a stream and keep their archive evidence."""
 from poly import cad, dense, algebraic, io
-from polynomials import Budget, QQ, sturm_sequence
+from polynomials import Budget, QQ
 from apn_mojo import Rational
 from std.testing import assert_true, assert_false, assert_equal
 
@@ -10,7 +10,6 @@ def main() raises:
     var a = dense.root_between([-2, 0, 1], 1, 2)
     var witness = a.witness().copy()
     witness.polynomial = witness.polynomial.mul(dense.to_core([Rational(-3), Rational(1)]), budget)
-    witness.sequence = sturm_sequence(witness.polynomial, budget)
     var same = algebraic.asreal(witness)
     assert_true(same == a)
     var p = [((1, 0), 1), ((0, 1), -1)]
@@ -43,7 +42,6 @@ def main() raises:
     assert_false(cad.check(wrong))
     # Even an irrational-style witness can denote an exact rational value.
     witness.polynomial = dense.to_core([Rational(-1), Rational(1), Rational(-1), Rational(1)])
-    witness.sequence = sturm_sequence(witness.polynomial, budget)
     witness.low = QQ(Rational(0))
     witness.high = QQ(Rational(2))
     var one = algebraic.asreal(witness)

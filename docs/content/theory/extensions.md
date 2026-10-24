@@ -1,17 +1,15 @@
 # Algebraic and CAD extensions
 
-The adapted algorithm sources are listed under
-[source provenance](../contributing/reference.md). This page states the
-mathematical obligations of the additive certificates; it does not claim
-that Mojo code has been formally verified or replayed through Isabelle.
+This page states the mathematical obligations of algebraic and CAD
+certificates. The [references](references.md) provide further background.
 
 ## Exact algebraic values
 
 **Definition A-1 (value witness).** A nonconstant monic polynomial over QQ,
-an open rational interval with nonroot endpoints, and a checked Sturm
-recurrence with root count one identify exactly one real value. A linear
-polynomial with equal rational endpoints identifies an exact rational root.
-Irreducibility is a producer normalization, not a checker assumption.
+an open rational interval with nonroot endpoints of opposite sign, and
+Descartes bound one on that interval identify exactly one simple real root.
+A linear polynomial with equal rational endpoints identifies an exact rational
+root. Irreducibility is a producer normalization, not a checker assumption.
 
 **Theorem A-2 (comparison certificate).** Ordered disjoint isolating intervals
 prove strict comparison. If a nonzero common polynomial divides both defining
@@ -22,20 +20,15 @@ definition at that rational point and checking interval containment suffices.
 Comparison production checks interval separation before polynomial gcd work.
 For overlapping nonrational values, the gcd has either zero or one root in the
 intersection, since each input interval contains exactly one root of its own
-definition. A count of one provides the equality witness; zero excludes
-equality throughout refinement, so the producer only needs to separate the
-remaining unequal values. The computed Sturm evidence and refined endpoints
-are retained for the existing comparison certificate. This also covers
-nonminimal and repeated defining polynomials.
+definition. Equality evidence retains exact common-factor identities and an
+interval inside both refined witnesses where that factor changes sign and has
+Descartes bound one. The checker verifies those identities and the root bound
+without computing a gcd or searching for roots. Nonminimal definitions are
+accepted when the selected root is simple.
 
-Reusing a Sturm sequence changes neither its polynomial nor its
-quotient identities. Cache lookup compares exact defining polynomials; every
-new interval still checks ordered nonroot endpoints and its own variation
-count. Arithmetic may retain a count of one already established during
-selection. The certificate owns the sequence and endpoints, and the checker
-verifies all of them independently. Grouping specialization terms by their
-unassigned monomial is distributivity; restoring first-occurrence order keeps
-the same coefficient evaluation and certificate schedule.
+Grouping specialization terms by their unassigned monomial is distributivity;
+restoring first-occurrence order preserves the coefficient evaluation and
+certificate schedule.
 
 **Theorem A-3 (arithmetic certificate).** Let alpha and beta denote the operand
 roots. For addition, eliminate t between `p(z-t)` and `q(t)`; for subtraction,
@@ -55,10 +48,11 @@ polynomial; input irreducibility is never trusted.
 **Theorem A-4 (complete roots at algebraic coefficients).** Give each nonrational
 coefficient its own variable and eliminate these variables against their
 defining polynomials. Every root of the original polynomial is a root of the
-resulting nonzero rational annihilator. A global Sturm count inside a certified
-Cauchy bound, together with that many distinct certified candidate roots,
-accounts for all real roots of the annihilator. Exact evaluation of the original
-polynomial at every candidate selects precisely the desired roots, even when
+resulting nonzero rational annihilator. Complete Descartes isolation of its
+squarefree part inside a certified root bound, together with the binding
+factor identity, accounts for all distinct real roots of the annihilator.
+Certified evaluation of the original polynomial at every candidate selects
+precisely the desired roots, even when
 the coefficients are algebraically dependent. No candidate can be omitted.
 
 The factory uses minimal coefficient definitions so that a nonzero leading

@@ -143,8 +143,12 @@ you do not have to keep a separate copy of the original options.
 | `isolated()` | Every counted region has count one |
 | `outcome()` | Success or the reason a requested property remains unresolved |
 
-`roots.intervals` returns `(low, high, count)` tuples. It omits zero-count cells
-but keeps unresolved cells with count -1. Real counts are distinct-root counts.
+`roots.intervals` returns `(low, high, count)` tuples. For a real cover of
+integer or rational coefficients there is one `(low, high, 1)` per distinct
+root, increasing: an open interval with the root strictly inside, or
+`low == high` for an exact rational root; unresolved pieces keep count -1.
+Real covers of `AA` coefficients and numerical arrays list cells, omitting
+zero-count cells. Real counts are distinct-root counts.
 `roots.rectangles` returns `(real_low, real_high, imag_low, imag_high, count)`;
 complex counts include multiplicity. A repeated complex root therefore needs
 `NumericOptions(require_isolation=False)` if a certified cluster is acceptable.
@@ -203,8 +207,8 @@ further univariate evaluation. Missing powers become exact zeros.
 
 A real cover counts distinct roots. `roots.multiplicities(cover)` adds exact
 multiplicities for an isolated complete cover of an integer or rational
-polynomial. Its `counts()` align with `roots.intervals(cover)`; excluded cells
-do not appear. `roots.check` verifies the squarefree, Bezout, and Sturm evidence.
+polynomial. Its `counts()` align with `roots.intervals(cover)`. `roots.check`
+verifies the squarefree product and that each root's block vanishes there.
 Complex cover counts already include multiplicity, but a region containing
 several roots does not identify each root's individual multiplicity.
 

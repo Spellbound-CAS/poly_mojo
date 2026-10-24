@@ -27,6 +27,8 @@ from .coefficients import QQ
 from .sparse import SparsePoly
 from .evaluate import derivative
 from .algebraic_types import RealAlgebraic, _copy_real
+from .certificates import _dense_equal
+from ._root_ops import _compare as _compare_q
 from .algebraic_specialization import AlgebraicSpecializationCertificate, _specialize_cached, check_algebraic_specialization, _zero_specialization, _coefficients, _point
 
 
@@ -56,6 +58,104 @@ def lazard_evaluate(f: SparsePoly[QQ], variable: Int64, point: List[Tuple[Int64,
     """
     var cache = _NormalizationCache()
     return _lazard_cached(f, variable, point, cache, budget)
+
+
+@fieldwise_init
+struct _LazardSteps(Movable):
+    """One polynomial's last Lazard evaluation, step by step along its point."""
+    var f: SparsePoly[QQ]
+    var variable: Int64
+    var coordinates: List[Tuple[Int64, RealAlgebraic]]
+    """The assigned coordinates, one per completed step."""
+    var evaluations: List[List[AlgebraicSpecializationCertificate]]
+    """The specializations each step tested."""
+    var orders: List[Int]
+    var currents: List[SparsePoly[QQ]]
+    """The polynomial after each step's derivatives."""
+
+
+struct _LazardMemo(Movable):
+    """The last evaluation of each lifted polynomial. Breadth-first lifting
+    visits sibling cells together, and their points share every coordinate but
+    the last, so each sibling's evaluation repeats all steps but the last."""
+    var steps: List[_LazardSteps]
+
+    def __init__(out self):
+        self.steps = List[_LazardSteps]()
+
+
+def _same_coordinate(a: Tuple[Int64, RealAlgebraic], b: Tuple[Int64, RealAlgebraic], mut budget: Budget) raises PolyError -> Bool:
+    budget.charge(1)
+    ref x = a[1]
+    ref y = b[1]
+    return a[0] == b[0] and x.rational == y.rational and _compare_q(x.low, y.low, budget) == 0 and _compare_q(x.high, y.high, budget) == 0 and _dense_equal(x.polynomial, y.polynomial, budget)
+
+
+def _lazard_memo(f: SparsePoly[QQ], variable: Int64, point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut memo: _LazardMemo, mut budget: Budget) raises PolyError -> LazardEvaluationCertificate:
+    """As _lazard_cached, reusing the steps of the memo's evaluation of f on the shared leading coordinates.
+
+    CAD lifting builds and checks the point, so its coordinates' witnesses
+    are not checked again here or at each step's specialization.
+    """
+    f.check_invariants(budget)
+    _point(point, budget, trusted=True)
+    if f.is_zero() or len(point) == 0:
+        return _lazard_cached(f, variable, point, cache, budget)
+    var slot = -1
+    for i in range(len(memo.steps)):
+        budget.charge(1)
+        if memo.steps[i].variable == variable and memo.steps[i].f == f:
+            slot = i
+            break
+    if slot < 0:
+        memo.steps.append(_LazardSteps(f._copy(budget), variable, List[Tuple[Int64, RealAlgebraic]](), List[List[AlgebraicSpecializationCertificate]](), List[Int](), List[SparsePoly[QQ]]()))
+        slot = len(memo.steps) - 1
+    ref steps = memo.steps[slot]
+    var shared = 0
+    while shared < len(steps.coordinates) and shared < len(point) and _same_coordinate(steps.coordinates[shared], point[shared], budget):
+        shared += 1
+    while len(steps.coordinates) > shared:
+        _ = steps.coordinates.pop()
+        _ = steps.evaluations.pop()
+        _ = steps.orders.pop()
+        _ = steps.currents.pop()
+    var current = steps.currents[shared - 1]._copy(budget) if shared else f._copy(budget)
+    var prefix = List[Tuple[Int64, RealAlgebraic]]()
+    for i in range(shared):
+        prefix.append((point[i][0], _copy_real(point[i][1], budget)))
+    for i in range(shared, len(point)):
+        budget.charge(1)
+        ref entry = point[i]
+        if entry[0] == variable:
+            raise PolyError(PolyErrorKind.DOMAIN, "Lazard lifting variable was assigned")
+        _allocation[Tuple[Int64, RealAlgebraic]](1, budget)
+        prefix.append((entry[0], _copy_real(entry[1], budget)))
+        var order = 0
+        var tested = List[AlgebraicSpecializationCertificate]()
+        while True:
+            budget.charge(1)
+            var evaluation = _specialize_cached(current, prefix, cache, budget, trusted=True)
+            var zero = _zero_specialization(evaluation, budget)
+            _allocation[AlgebraicSpecializationCertificate](1, budget)
+            tested.append(evaluation^)
+            if not zero:
+                break
+            current = derivative(current, entry[0], budget)
+            if current.is_zero():
+                raise PolyError(PolyErrorKind.DOMAIN, "Lazard derivative chain unexpectedly vanished")
+            order = _sum(order, 1)
+        steps.coordinates.append((entry[0], _copy_real(entry[1], budget)))
+        steps.evaluations.append(tested^)
+        steps.orders.append(order)
+        steps.currents.append(current._copy(budget))
+    var orders = steps.orders.copy()
+    var evaluations = List[AlgebraicSpecializationCertificate]()
+    for tested in steps.evaluations:
+        for evaluation in tested:
+            budget.charge(1)
+            evaluations.append(evaluation.copy())
+    _ = _coefficients(evaluations[len(evaluations) - 1], variable, budget)
+    return LazardEvaluationCertificate(orders^, evaluations^)
 
 
 def _lazard_cached(f: SparsePoly[QQ], variable: Int64, point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> LazardEvaluationCertificate:

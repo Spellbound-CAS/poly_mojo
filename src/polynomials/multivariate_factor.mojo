@@ -10,6 +10,7 @@ from ._gcd import _primitive_zz
 from ._images import _rational_image, _integer_image
 from ._multivariate_factor import _atoms, _normalize
 from ._coefficient_ops import _copy as _copy_coefficient
+from ._power_roots import _imul, _ipow, _power_hint, _power_root, _primitive_ordered
 
 
 @fieldwise_init
@@ -123,6 +124,14 @@ def factor_multivariate(f: SparsePoly[QQ], mut budget: Budget) raises PolyError 
     return MultivariateFactorization[QQ](_unit(remaining, budget), factors^)
 
 
+def _quotient_zz(a: ZZ, b: ZZ, mut budget: Budget) raises PolyError -> ZZ:
+    _charge_size(a.value.magnitude_bit_length() // 64 + 1, budget)
+    try:
+        return ZZ(a.value // b.value)
+    except err:
+        raise PolyError(PolyErrorKind.CAPACITY, String(err))
+
+
 def factor_multivariate_integer(f: SparsePoly[ZZ], mut budget: Budget) raises PolyError -> MultivariateFactorization[ZZ]:
     """Factor an integer multivariate polynomial into primitive irreducible factors.
 
@@ -137,18 +146,47 @@ def factor_multivariate_integer(f: SparsePoly[ZZ], mut budget: Budget) raises Po
         PolyError: DOMAIN for malformed input, LIMIT or CAPACITY on work limits.
     """
     f.check_invariants(budget)
-    var rational = factor_multivariate(_rational_image(f, budget), budget)
+    # A perfect power h^e factors as h with multiplicities times e; the
+    # squarefree gcd and every division by a repeated factor are skipped.
+    if not f.is_zero():
+        var variables = f.variables(budget)
+        if len(variables) >= 2:
+            var primitive = _primitive_ordered(f, budget)
+            var e = _power_hint(primitive, variables[len(variables) - 1], budget)
+            if e >= 2:
+                var root = _power_root(primitive, e, budget)
+                if root:
+                    var inner = factor_multivariate_integer(root.value(), budget)
+                    var scale = _quotient_zz(f.terms[0].coefficient, primitive.terms[0].coefficient, budget)
+                    var unit = ZZ(_imul(scale.value, _ipow(inner.unit.value, e, budget), budget))
+                    var powered = List[Tuple[SparsePoly[ZZ], Int]]()
+                    for entry in inner.factors:
+                        budget.charge(1)
+                        powered.append((entry[0]._copy(budget), entry[1] * e))
+                    _sort(powered, budget)
+                    return MultivariateFactorization[ZZ](unit^, powered^)
+    # Multiplicities are counted by exact division over ZZ directly; the
+    # rational route divided twice, once with Rational arithmetic.
     var remaining = f._copy(budget)
-    _allocation[Tuple[SparsePoly[ZZ], Int]](len(rational.factors), budget)
     var factors = List[Tuple[SparsePoly[ZZ], Int]]()
-    for entry in rational.factors:
-        budget.charge(1)
-        var primitive = _primitive_zz(_integer_image(entry[0], budget), budget)
-        var quotient = divide_exact(remaining, primitive.pow(UInt64(entry[1]), budget), budget)
-        if not quotient:
-            raise PolyError(PolyErrorKind.DOMAIN, "integer factor reconstruction is inexact")
-        remaining = quotient.take()
-        factors.append((primitive^, entry[1]))
+    if not f.is_zero():
+        var rational = _rational_image(f, budget)
+        var atoms = _atoms(rational.reorder(MonomialOrder(), budget), budget)
+        _allocation[Tuple[SparsePoly[ZZ], Int]](len(atoms), budget)
+        for atom in atoms:
+            budget.charge(1)
+            var primitive = _primitive_zz(_integer_image(_normalize(atom.reorder(rational.order, budget), budget), budget), budget)
+            var multiplicity = 0
+            while True:
+                budget.charge(1)
+                var quotient = divide_exact(remaining, primitive, budget)
+                if not quotient:
+                    break
+                remaining = quotient.take()
+                multiplicity = _sum(multiplicity, 1)
+            if not multiplicity:
+                raise PolyError(PolyErrorKind.DOMAIN, "integer factor reconstruction is inexact")
+            factors.append((primitive^, multiplicity))
     _sort(factors, budget)
     return MultivariateFactorization[ZZ](_unit(remaining, budget), factors^)
 

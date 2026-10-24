@@ -1,17 +1,19 @@
 """Arithmetic producers retaining complete elimination and root witnesses."""
 from std.collections import Optional
-from .errors import Budget, PolyError, PolyErrorKind
+from .errors import Budget, PolyError, PolyErrorKind, _allocation
 from .coefficients import QQ, NoContext
 from .dense import DensePoly
-from .certificates import ResultantResult, RootCountCertificate
-from .algebraic_types import RealAlgebraic, _check_real, _copy_sequence
+from .certificates import ResultantResult
+from .roots import RootInterval
+from .algebraic_types import RealAlgebraic, _check_real, _copy_real
 from .algebraic_arithmetic import AlgebraicArithmeticCertificate
-from ._algebraic import _rational, _root_cached, _NormalizationCache, _sturm_index, _refine, _sign
+from ._algebraic import _rational, _root_cached, _NormalizationCache, _refine, _sign, _same_witness
+from .descartes import _unique_root, _one_root, _rational_bound, _strip_factor
 from ._algebraic_ops import _binary_definitions, _unary_definition, _operation_bounds, _rational_operation
 from ._dense_ops import _exact
-from ._root_ops import _copy as _copy_q, _variations
-from .evaluate import evaluate_dense
+from ._root_ops import _copy as _copy_q, _sign_at
 from .resultant import resultant
+from ._algebraic_filter import _definition_resultant
 
 
 def _arithmetic(a: RealAlgebraic, b: RealAlgebraic, op: Int, mut budget: Budget) raises PolyError -> AlgebraicArithmeticCertificate:
@@ -20,6 +22,25 @@ def _arithmetic(a: RealAlgebraic, b: RealAlgebraic, op: Int, mut budget: Budget)
 
 
 def _arithmetic_cached(a: RealAlgebraic, b: RealAlgebraic, op: Int, mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> AlgebraicArithmeticCertificate:
+    if a.rational and (op >= 3 or b.rational):
+        return _arithmetic_computed(a, b, op, cache, budget)
+    # The operation code also carries both operand degrees, a cheap filter
+    # before any coefficient comparison.
+    var key = op + 8 * (a.polynomial.degree() + 65536 * (b.polynomial.degree() if op < 3 else 0))
+    for i in range(len(cache.operations)):
+        budget.charge(1)
+        if cache.operations[i] == key and _same_witness(cache.operands[i][0], a, budget) and (op >= 3 or _same_witness(cache.operands[i][1], b, budget)):
+            _allocation[AlgebraicArithmeticCertificate](1, budget)
+            return cache.results[i].copy()
+    var result = _arithmetic_computed(a, b, op, cache, budget)
+    _allocation[AlgebraicArithmeticCertificate](1, budget)
+    cache.operations.append(key)
+    cache.operands.append((_copy_real(a, budget), _copy_real(b, budget)))
+    cache.results.append(result.copy())
+    return result^
+
+
+def _arithmetic_computed(a: RealAlgebraic, b: RealAlgebraic, op: Int, mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> AlgebraicArithmeticCertificate:
     if not _check_real(a, budget) or (op < 3 and not _check_real(b, budget)):
         raise PolyError(PolyErrorKind.DOMAIN, "invalid algebraic operand")
     var left = _root_cached(a.polynomial, a.low, a.high, cache, budget)
@@ -39,26 +60,32 @@ def _arithmetic_cached(a: RealAlgebraic, b: RealAlgebraic, op: Int, mut cache: _
     var h: DensePoly[QQ]
     if op < 3:
         var definitions = _binary_definitions(left, right, op, budget)
-        var identity = resultant(definitions[0], definitions[1], 1, budget)
+        # The norm by interpolation; the subresultant PRS when an inverse fails.
+        var fast = _definition_resultant(definitions[0], right, budget)
+        var identity = fast.take() if fast else resultant(definitions[0], definitions[1], 1, budget)
         h = DensePoly[QQ].from_sparse(identity.resultant, budget, variable=Int64(0))
         elimination = identity^
     else:
         h = _unary_definition(left, op, budget)
     if h.is_zero():
         raise PolyError(PolyErrorKind.DOMAIN, "algebraic annihilator unexpectedly vanished")
-    var sequence_index = _sturm_index(h, cache.sequences, budget)
     while True:
         budget.charge(1)
         if op == 4 and left.low.value.sign() * left.high.value.sign() <= 0:
             _refine(left, budget)
             continue
         var bounds = _operation_bounds(left, right, op, budget)
-        if not evaluate_dense(h, bounds[0], budget).is_zero() and not evaluate_dense(h, bounds[1], budget).is_zero():
-            if _variations(cache.sequences[sequence_index].polynomials, bounds[0], budget) - _variations(cache.sequences[sequence_index].polynomials, bounds[1], budget) == 1:
+        if not _sign_at(h, bounds[0], budget) == 0 and not _sign_at(h, bounds[1], budget) == 0:
+            # The window certifies h's single root there: the result's
+            # polynomial p has it with bound 1, and h / p with every factor
+            # p divided out has none.
+            if _unique_root(h, bounds[0], bounds[1], budget):
                 var value = _root_cached(h, bounds[0], bounds[1], cache, budget)
                 var value_factor = _exact(h, value.polynomial, budget)
-                var selection = RootCountCertificate(_copy_sequence(cache.sequences[sequence_index], budget), _copy_q(bounds[0], budget), _copy_q(bounds[1], budget), 1)
-                return AlgebraicArithmeticCertificate(op, left^, right^, left_factor^, right_factor^, value^, h^, value_factor^, elimination^, selection^)
+                var rest = _strip_factor(value_factor, value.polynomial, budget)
+                if _one_root(value.polynomial, bounds[0], bounds[1], budget) and _rational_bound(rest, bounds[0], bounds[1], 1, budget) == 0:
+                    var selection = RootInterval(_copy_q(bounds[0], budget), _copy_q(bounds[1], budget))
+                    return AlgebraicArithmeticCertificate(op, left^, right^, left_factor^, right_factor^, value^, h^, value_factor^, elimination^, selection^)
         _refine(left, budget)
         if op < 3:
             _refine(right, budget)

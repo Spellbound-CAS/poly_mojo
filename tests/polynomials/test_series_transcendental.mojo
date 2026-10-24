@@ -33,6 +33,14 @@ def field[C: CoefficientField](ctx: C.Context, mut check: Checker) raises:
                 factorial = factorial.mul(_ExactOps[C].integer(k, ctx, work), work)
             valid = valid and exp_x.polynomial.coefficients[k] == factorial.inverse(work)
         check.check(valid, "exp(x) has inverse factorial coefficients")
+        var root = geometric.sqrt(work)
+        check.check(root.mul(root, work).polynomial == geometric.polynomial, "sqrt(1/(1-x)) squares back")
+        check.check(root.polynomial.coefficients[0] == C.one(ctx), "series square root has constant term one")
+        try:
+            _ = logarithm.sqrt(work)
+            check.check(n == 0, "square root rejected a zero constant term")
+        except e:
+            check.check(e.kind == PolyErrorKind.DOMAIN, "square root of a zero-constant series is a domain error")
         var tiny = Budget(10)
         try:
             _ = logarithm.exp(tiny)
@@ -41,10 +49,38 @@ def field[C: CoefficientField](ctx: C.Context, mut check: Checker) raises:
             check.check(e.kind == PolyErrorKind.LIMIT and geometric.order == n, "exhaustion preserves exact input")
 
 
+def rational_roundtrip(mut check: Checker) raises:
+    """Dense rational series with small and with wide common denominators."""
+    var work = Budget()
+    for n in [16, 17, 100]:
+        var values = List[QQ](capacity=n)
+        values.append(QQ.one(NoContext()))
+        for k in range(1, n):
+            values.append(QQ(Rational((k % 7) - 3, (k % 5) + 2)))
+        var f = TruncatedSeries[QQ].from_polynomial(DensePoly[QQ].from_coefficients(0, NoContext(), values^, work), n, work)
+        var back = f.log(work).exp(work)
+        check.check(back.polynomial == f.polynomial, "exp(log f) recovers a dense rational series")
+        # exp(g) exp(-g) = 1 and log exp(g) = g for g with denominator 6.
+        var small = List[QQ](capacity=n)
+        var negated = List[QQ](capacity=n)
+        small.append(QQ.zero(NoContext()))
+        negated.append(QQ.zero(NoContext()))
+        for k in range(1, n):
+            small.append(QQ(Rational((k % 7) - 3, 6)))
+            negated.append(QQ(Rational(3 - (k % 7), 6)))
+        var g = TruncatedSeries[QQ].from_polynomial(DensePoly[QQ].from_coefficients(0, NoContext(), small^, work), n, work)
+        var h = TruncatedSeries[QQ].from_polynomial(DensePoly[QQ].from_coefficients(0, NoContext(), negated^, work), n, work)
+        var eg = g.exp(work)
+        var product = eg.mul(h.exp(work), work)
+        check.check(product.polynomial == DensePoly[QQ].from_coefficients(0, NoContext(), [QQ.one(NoContext())], work), "exp(g) exp(-g) = 1 for denominator 6")
+        check.check(eg.log(work).polynomial == g.polynomial, "log exp(g) recovers g for denominator 6")
+
+
 def main() raises:
     var check = Checker("series transcendental")
     var work = Budget()
     field[QQ](NoContext(), check)
+    rational_roundtrip(check)
     field[QQi](NoContext(), check)
     field[ModInt](Modulus(65521, work), check)
     for prime in [2, 7, 257]:

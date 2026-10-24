@@ -3,6 +3,7 @@ from polynomials import Budget, PolyErrorKind, CoefficientRing, ZZ, QQ, ModInt, 
 from support.check import Checker
 from support.gen import polynomial, coefficient
 from support.rng import SplitMix64
+from apn_mojo import Integer
 
 def laws[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
     var work = Budget()
@@ -56,10 +57,34 @@ def laws[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
     except e:
         c.check(e.kind == PolyErrorKind.LIMIT, "derivative budget")
 
+def word_blocks(mut c: Checker) raises:
+    """Integer points: the word-level block Horner under the balanced halves agrees with plain Horner at sign and size extremes."""
+    var work = Budget()
+    var rng = SplitMix64(977)
+    var top = Integer(Int64.MAX)
+    var points = [Integer(0), Integer(1), Integer(-1), Integer(3), Integer(-7), Integer(2147483647), Integer(-2147483000), Integer(1) << Integer(62), -(Integer(1) << Integer(62)), top, -top, top + Integer(1)]
+    for length in [31, 32, 33, 63, 64, 65, 100, 257]:
+        var coefficients = List[ZZ]()
+        for i in range(length):
+            var r = rng.next()
+            var v = Integer(Int64(r >> 1)) if r % 5 else (top if i % 2 else -top)
+            coefficients.append(ZZ(-v if r % 3 == 0 else v))
+        # Only the leading coefficient must be nonzero; zeros elsewhere exercise empty blocks.
+        for i in range(min(length - 1, 40)):
+            coefficients[i] = ZZ(Integer(0)) if i % 9 == 4 else coefficients[i].copy()
+        var p = DensePoly[ZZ].from_coefficients(0, NoContext(), coefficients.copy(), work)
+        for x in points:
+            var expected = Integer(0)
+            for i in range(len(p.coefficients) - 1, -1, -1):
+                expected = expected * x + p.coefficients[i].value
+            c.check(evaluate_dense(p, ZZ(x.copy()), work).value == expected, String("integer evaluation at ", x, " of ", length, " coefficients"))
+
+
 def main() raises:
     var c = Checker("evaluation")
     var work = Budget()
     laws[ZZ](NoContext(), c)
     laws[QQ](NoContext(), c)
     laws[ModInt](Modulus(3, work), c)
+    word_blocks(c)
     c.finish()

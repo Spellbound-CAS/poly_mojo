@@ -2,6 +2,7 @@
 from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum, _charge_size
 from .coefficients import QQ, NoContext
 from .sparse import SparsePoly, Term
+from .dense import DensePoly
 from ._grouping import _partition
 from .monomial import Monomial
 from .algebraic_types import RealAlgebraic, _rational, _copy_real, _check_real, _same_root
@@ -10,6 +11,7 @@ from ._algebraic_certify import _arithmetic_cached
 from ._algebraic import _NormalizationCache
 from .algebraic_roots import AlgebraicRootsCertificate, algebraic_roots, check_algebraic_roots
 from ._algebraic_ops import _is_zero_real
+from ._algebraic_filter import _direct_value, _check_direct, _frame_value, _check_frame_direct
 
 
 @fieldwise_init
@@ -19,6 +21,10 @@ struct AlgebraicPolynomialEvaluation(Copyable, Movable, Writable):
     """Binary powering, term multiplication and summation witnesses in traversal order."""
     var value: RealAlgebraic
     """The exact evaluation result."""
+    var witness: List[RealAlgebraic]
+    """For a direct proof without steps, a refined witness of the one irrational coordinate or of a generator; empty otherwise."""
+    var representations: List[DensePoly[QQ]]
+    """With a generator witness, each point coordinate as a polynomial in it; empty for one irrational coordinate."""
 
 
 @fieldwise_init
@@ -39,10 +45,13 @@ struct AlgebraicRootsAtCertificate(Copyable, Movable, Writable):
     """Every real root of the specialized nonzero polynomial."""
 
 
-def _point(point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget) raises PolyError:
+def _point(point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget, trusted: Bool = False) raises PolyError:
+    # trusted: the coordinates were built and checked by the library (CAD
+    # lifting), so only the variables are checked, not every coordinate's
+    # witness again; public callers keep the full check.
     for i in range(len(point)):
         budget.charge(1)
-        if point[i][0] < 0 or not _check_real(point[i][1], budget):
+        if point[i][0] < 0 or (not trusted and not _check_real(point[i][1], budget)):
             raise PolyError(PolyErrorKind.DOMAIN, "invalid algebraic assignment")
         for j in range(i):
             budget.charge(1)
@@ -70,8 +79,8 @@ struct _PreparedPoint(Movable):
         return -1
 
 
-def _prepare_point(point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget) raises PolyError -> _PreparedPoint:
-    _point(point, budget)
+def _prepare_point(point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget, trusted: Bool = False) raises PolyError -> _PreparedPoint:
+    _point(point, budget, trusted)
     _allocation[Tuple[Int64, Int]](len(point), budget)
     var coordinates = List[Tuple[Int64, Int]](capacity=len(point))
     for i in range(len(point)):
@@ -103,6 +112,29 @@ def _step[checking: Bool](a: RealAlgebraic, b: RealAlgebraic, op: Int, given: Li
 
 def _evaluation[checking: Bool](f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], prepared: _PreparedPoint, given: AlgebraicPolynomialEvaluation, mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> AlgebraicPolynomialEvaluation:
     f.check_invariants(budget)
+    comptime if checking:
+        if len(given.witness):
+            var valid: Bool
+            if len(given.representations):
+                valid = _check_frame_direct(f, point, given.value, given.witness, given.representations, budget)
+            else:
+                valid = _check_direct(f, point, given.value, given.witness, budget)
+            if len(given.steps) or not valid:
+                raise PolyError(PolyErrorKind.DOMAIN, "invalid direct algebraic evaluation")
+            return AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), _copy_real(given.value, budget), List[RealAlgebraic](), List[DensePoly[QQ]]())
+    else:
+        # One irrational coordinate: the value is r(alpha) for r = f mod m_alpha.
+        var direct = _direct_value(f, point, cache, budget)
+        if direct:
+            var parts = direct.take()
+            return AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), parts[0].copy(), [parts[1].copy()], List[DensePoly[QQ]]())
+        # Several: every coordinate is a polynomial in the frame's generator.
+        if cache.frame:
+            var frame = cache.frame.value().copy()
+            var framed = _frame_value(f, point, frame, cache, budget)
+            if framed:
+                var parts = framed.take()
+                return AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), parts[0].copy(), [parts[1].copy()], parts[2].copy())
     var generated = List[AlgebraicArithmeticCertificate]()
     var cursor = 0
     var value = _rational(QQ.zero(NoContext()), budget)
@@ -129,7 +161,7 @@ def _evaluation[checking: Bool](f: SparsePoly[QQ], point: List[Tuple[Int64, Real
     comptime if checking:
         if cursor != len(given.steps) or not _same_root(given.value, value, budget):
             raise PolyError(PolyErrorKind.DOMAIN, "invalid algebraic evaluation result")
-    return AlgebraicPolynomialEvaluation(generated^, value^)
+    return AlgebraicPolynomialEvaluation(generated^, value^, List[RealAlgebraic](), List[DensePoly[QQ]]())
 
 
 def algebraic_evaluate_sparse(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget) raises PolyError -> AlgebraicPolynomialEvaluation:
@@ -151,7 +183,7 @@ def algebraic_evaluate_sparse(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAl
 
 
 def _evaluate_sparse_cached(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> AlgebraicPolynomialEvaluation:
-    var empty = AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), _rational(QQ.zero(NoContext()), budget))
+    var empty = AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), _rational(QQ.zero(NoContext()), budget), List[RealAlgebraic](), List[DensePoly[QQ]]())
     var prepared = _prepare_point(point, budget)
     return _evaluation[False](f, point, prepared, empty, cache, budget)
 
@@ -239,12 +271,12 @@ def algebraic_specialize(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebra
     return _specialize_cached(f, point, cache, budget)
 
 
-def _specialize_cached(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut budget: Budget) raises PolyError -> AlgebraicSpecializationCertificate:
-    var prepared = _prepare_point(point, budget)
+def _specialize_cached(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], mut cache: _NormalizationCache, mut budget: Budget, trusted: Bool = False) raises PolyError -> AlgebraicSpecializationCertificate:
+    var prepared = _prepare_point(point, budget, trusted)
     var grouped = _groups_prepared(f, prepared, budget)
     _allocation[AlgebraicPolynomialEvaluation](len(grouped[0]), budget)
     var evaluations = List[AlgebraicPolynomialEvaluation]()
-    var empty = AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), _rational(QQ.zero(NoContext()), budget))
+    var empty = AlgebraicPolynomialEvaluation(List[AlgebraicArithmeticCertificate](), _rational(QQ.zero(NoContext()), budget), List[RealAlgebraic](), List[DensePoly[QQ]]())
     for coefficient in grouped[1]:
         budget.charge(1)
         evaluations.append(_evaluation[False](coefficient, point, prepared, empty, cache, budget))

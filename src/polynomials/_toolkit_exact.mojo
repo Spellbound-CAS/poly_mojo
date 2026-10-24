@@ -1,6 +1,9 @@
 """Exact scalar operations for shared coefficient-vector algorithms."""
-from ._toolkit_ops import _ScalarOps, _convolve_values
-from .coefficients import CoefficientRing, ModInt
+from ._toolkit_ops import _ScalarOps, _convolve_values, _native_convolve, _as_mod_ints
+from .coefficients import CoefficientRing, ModInt, Modulus, ZZ, QQ
+from ._nmod import _field, _to_reduced, _from, _WIDE_PRIME
+from ._multipoint import _mullow_fast, _schoolbook_wins
+from ._ntt import _ntt_low_product
 from .dense import _karatsuba, _slice
 from ._coefficient_ops import _exact, _copy
 from .evaluate import _natural
@@ -18,7 +21,7 @@ struct _ExactOps[C: CoefficientRing](_ScalarOps):
     def multiply(a: _CoefficientView[Self.Scalar, _], b: _CoefficientView[Self.Scalar, _], length: Int, context: Self.Context, mut budget: Budget) raises PolyError -> List[Self.Scalar]:
         # Keep the small kernel visible to callers; the larger work-stack
         # implementation must not make short Horner products pay call overhead.
-        if min(length, min(len(a), len(b))) < 64:
+        if min(length, min(len(a), len(b))) < (_RATIONAL_TRANSFORM if Self.C == QQ else 64):
             return _convolve_values[Self](_view(a), _view(b), length, context, budget)
         return _exact_product(_view(a), _view(b), length, context, budget)
 
@@ -54,6 +57,9 @@ struct _ExactOps[C: CoefficientRing](_ScalarOps):
         return value.is_zero()
 
 
+comptime _RATIONAL_TRANSFORM = 8
+"""Rational products from this many terms on run on integer numerators by transforms."""
+
 @fieldwise_init
 struct _LowProduct[C: CoefficientRing](Movable):
     var a: List[Self.C]
@@ -67,8 +73,30 @@ def _exact_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _Coefficien
         raise PolyError(PolyErrorKind.DOMAIN, "negative truncation order")
     var na = min(length, len(a))
     var nb = min(length, len(b))
-    if min(na, nb) < 64:
+    if min(na, nb) < (_RATIONAL_TRANSFORM if C == QQ else 64):
         return _convolve_values[_ExactOps[C]](_view(a), _view(b), length, context, budget)
+    comptime if C == ModInt:
+        # The work stack's shape, as in _transform_product: n coefficients
+        # when n <= max(na, nb), else the trimmed full product truncated to n.
+        ref ring = rebind[Modulus](context)
+        var full = na + nb - 1
+        var n = min(length, full)
+        var values = _modular_low(a, b, na, nb, n if n <= max(na, nb) else full, ring, budget)
+        if n > max(na, nb):
+            while len(values) and values[len(values) - 1] == 0:
+                budget.charge(1)
+                _ = values.pop()
+            while len(values) > n:
+                budget.charge(1)
+                _ = values.pop()
+        return _as_mod_ints[C](values, ring, budget)
+    comptime if C == ZZ or C == QQ:
+        # Rational operands pay once for a common denominator and its gcds,
+        # which the transform recovers from a few terms on.
+        if C != QQ or min(na, nb) >= _RATIONAL_TRANSFORM:
+            var transformed = _transform_product(a, b, na, nb, length, budget)
+            if transformed:
+                return transformed.take()
     _allocation[_LowProduct[C]](1, budget)
     var tasks = List[_LowProduct[C]]()
     tasks.append(_LowProduct[C](_slice(_view(a), 0, na, budget), _slice(_view(b), 0, nb, budget), length, 0))
@@ -122,6 +150,56 @@ def _exact_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _Coefficien
             tasks.append(_LowProduct[C](a1^, b0^, n - k, 0))
             tasks.append(_LowProduct[C](a0^, b1^, n - k, 0))
     return answers.pop()
+
+
+def _modular_low[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], na: Int, nb: Int, count: Int, ring: Modulus, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The first `count` <= na + nb - 1 coefficients of a[:na] * b[:nb] as canonical residues, untrimmed."""
+    _allocation[UInt64](_sum(na, nb), budget)
+    var x = List[UInt64](capacity=na)
+    for i in range(na):
+        x.append(rebind[ModInt](a[i]).value)
+    var y = List[UInt64](capacity=nb)
+    for i in range(nb):
+        y.append(rebind[ModInt](b[i]).value)
+    # Short products of wide primes reduce once per coefficient, without
+    # Montgomery conversions; the rest run on Montgomery residues.
+    if ring.value == 2 or (ring.value >= _WIDE_PRIME and _schoolbook_wins(na, nb, count)):
+        return _native_convolve(x, y, count, ring.value, budget)
+    var f = _field(ring.value)
+    for i in range(na):
+        x[i] = _to_reduced(x[i], f)
+    for i in range(nb):
+        y[i] = _to_reduced(y[i], f)
+    var low = _mullow_fast(x, y, count, f, budget)
+    _allocation[UInt64](count, budget)
+    var result = List[UInt64](length=count, fill=0)
+    for i in range(len(low)):
+        result[i] = _from(low[i], f)
+    return result^
+
+
+def _transform_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], na: Int, nb: Int, length: Int, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """The work-stack product's exact output by transforms, or None when they do not apply.
+
+    The work stack returns n = min(length, na + nb - 1) coefficients when n is
+    at most max(na, nb); otherwise its full product loses trailing zeros
+    before truncation to n. The transform result keeps both shapes.
+    """
+    var full = na + nb - 1
+    var n = min(length, full)
+    if n <= max(na, nb):
+        return _ntt_low_product(a, b, length, budget)
+    var values = _ntt_low_product(a, b, full, budget)
+    if not values:
+        return None
+    var result = values.take()
+    while len(result) and result[len(result) - 1].is_zero():
+        budget.charge(1)
+        _ = result.pop()
+    while len(result) > n:
+        budget.charge(1)
+        _ = result.pop()
+    return result^
 
 
 def _use_newton[C: CoefficientRing](length: Int, divisor_length: Int) -> Bool:

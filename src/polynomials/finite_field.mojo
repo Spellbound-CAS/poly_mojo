@@ -39,6 +39,8 @@ from .squarefree import squarefree
 from ._dense_reduction import _DenseReducer, _dense_reducer
 from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum
 from ._dense_ops import _copy, _one, _gcd, _exact, _derivative
+from . import _nmod
+from ._berlekamp import _berlekamp, _BERLEKAMP_PRIME, _BERLEKAMP_DEGREE
 
 
 @fieldwise_init
@@ -145,9 +147,13 @@ def factor_mod_p(f: DensePoly[ModInt], mut budget: Budget, seed: UInt64) raises 
     f.check_invariants(budget)
     if f.is_zero() or f.coefficients[f.degree()].value != 1:
         raise PolyError(PolyErrorKind.DOMAIN, "finite-field factorization requires a monic input")
+    var factors = List[DensePoly[ModInt]]()
+    if f.ring.value > 2:
+        _native_factors(f, seed, factors, budget)
+        _sort_factors(factors, f, budget)
+        return factors^
     if _gcd(f, _derivative(f, budget), budget).degree() > 0:
         raise PolyError(PolyErrorKind.DOMAIN, "finite-field factorization requires a squarefree input")
-    var factors = List[DensePoly[ModInt]]()
     var remaining = _copy(f, budget)
     var x = DensePoly[ModInt].from_coefficients(f.variable, f.ring, [ModInt.zero(f.ring), ModInt.one(f.ring)], budget)
     var power = _copy(x, budget)
@@ -167,6 +173,11 @@ def factor_mod_p(f: DensePoly[ModInt], mut budget: Budget, seed: UInt64) raises 
     if remaining.degree() > 0:
         _allocation[DensePoly[ModInt]](1, budget)
         factors.append(remaining^)
+    _sort_factors(factors, f, budget)
+    return factors^
+
+
+def _sort_factors(mut factors: List[DensePoly[ModInt]], f: DensePoly[ModInt], mut budget: Budget) raises PolyError:
     # Stable insertion sort moves polynomial buffers instead of copying them.
     for i in range(1, len(factors)):
         budget.charge(1)
@@ -179,7 +190,88 @@ def factor_mod_p(f: DensePoly[ModInt], mut budget: Budget, seed: UInt64) raises 
             swap(moved, factors[j])
             j -= 1
         swap(current, factors[j])
+
+
+struct _ModularPattern(Movable):
+    """Factor degrees of a monic squarefree polynomial over GF(p), with what is needed to finish its factorization.
+
+    For p above the Berlekamp bound only distinct-degree factorization has
+    run and `native` keeps its parts; otherwise `factors` already holds the
+    sorted factorization.
+    """
+    var degrees: List[Int]
+    var native: Optional[_nmod._DegreePattern]
+    var factors: List[DensePoly[ModInt]]
+
+    def __init__(out self, var degrees: List[Int], var native: Optional[_nmod._DegreePattern], var factors: List[DensePoly[ModInt]]):
+        self.degrees = degrees^
+        self.native = native^
+        self.factors = factors^
+
+
+def _factor_pattern(f: DensePoly[ModInt], mut budget: Budget) raises PolyError -> _ModularPattern:
+    """The irreducible factor degrees of a monic squarefree f, splitting equal-degree parts only for tiny primes."""
+    if f.ring.value > _BERLEKAMP_PRIME:
+        var field = _nmod._field(f.ring.value)
+        _allocation[UInt64](len(f.coefficients), budget)
+        var native = List[UInt64](capacity=len(f.coefficients))
+        for i in range(len(f.coefficients)):
+            native.append(_nmod._to(f.coefficients[i].value, field))
+        var pattern = _nmod._degree_pattern(native, field, budget)
+        var degrees = pattern.degrees.copy()
+        return _ModularPattern(degrees^, Optional(pattern^), List[DensePoly[ModInt]]())
+    var factors = factor_mod_p(f, budget, 0)
+    var degrees = List[Int]()
+    for g in factors:
+        degrees.append(g.degree())
+    return _ModularPattern(degrees^, None, factors^)
+
+
+def _pattern_factors(mut pattern: _ModularPattern, f: DensePoly[ModInt], mut budget: Budget) raises PolyError -> List[DensePoly[ModInt]]:
+    """The sorted factorization that factor_mod_p(f, budget, 0) returns, finished from its pattern."""
+    if not pattern.native:
+        var done = List[DensePoly[ModInt]]()
+        swap(done, pattern.factors)
+        return done^
+    var field = _nmod._field(f.ring.value)
+    var found = _nmod._split_pattern(pattern.native.value(), field, 0, budget)
+    var factors = List[DensePoly[ModInt]]()
+    _allocation[DensePoly[ModInt]](len(found), budget)
+    for g in found:
+        _allocation[ModInt](len(g), budget)
+        var values = List[ModInt](capacity=len(g))
+        for v in g:
+            values.append(ModInt.zero(f.ring)._with_residue(_nmod._from(v, field)))
+        factors.append(DensePoly[ModInt]._from_canonical(f.variable, f.ring, values^))
+    _sort_factors(factors, f, budget)
     return factors^
+
+
+def _native_factors(f: DensePoly[ModInt], seed: UInt64, mut factors: List[DensePoly[ModInt]], mut budget: Budget) raises PolyError:
+    # Odd primes use native Montgomery residues; the factor set is canonical,
+    # so it does not depend on the splitting strategy.
+    var field = _nmod._field(f.ring.value)
+    _allocation[UInt64](len(f.coefficients), budget)
+    var native = List[UInt64](capacity=len(f.coefficients))
+    for i in range(len(f.coefficients)):
+        native.append(_nmod._to(f.coefficients[i].value, field))
+    if len(_nmod._gcd(native, _nmod._derivative(native, field, budget), field, budget)) > 1:
+        raise PolyError(PolyErrorKind.DOMAIN, "finite-field factorization requires a squarefree input")
+    # Tiny primes eliminate the byte-packed Berlekamp matrix up to a degree
+    # where it still beats distinct-degree factorization.
+    var n = len(native) - 1
+    var found: List[List[UInt64]]
+    if field.p <= _BERLEKAMP_PRIME and n >= 2 and n <= _BERLEKAMP_DEGREE:
+        found = _berlekamp(native, field, seed, budget)
+    else:
+        found = _nmod._distinct_degree(native, field, seed, budget)
+    _allocation[DensePoly[ModInt]](len(found), budget)
+    for g in found:
+        _allocation[ModInt](len(g), budget)
+        var values = List[ModInt](capacity=len(g))
+        for v in g:
+            values.append(ModInt.zero(f.ring)._with_residue(_nmod._from(v, field)))
+        factors.append(DensePoly[ModInt]._from_canonical(f.variable, f.ring, values^))
 
 
 def factor_finite_field(f: DensePoly[ModInt], mut budget: Budget, seed: UInt64 = 0) raises PolyError -> Factorization[ModInt]:

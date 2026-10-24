@@ -1,6 +1,6 @@
 """Exact-root refinement, certainly rounded conversion and retained enclosure witnesses."""
 from apn_mojo import Integer, Rational, Float, Complex as RoundedComplex, ArithmeticContext, ComplexContext, BallContext, to_float_if_certain
-from polynomials import Budget, PolyError, PolyErrorKind, QQ, CoefficientRing, DensePoly, SparsePoly, RealAlgebraic, check_real_algebraic, real_rational, evaluate_dense, sign_changes
+from polynomials import Budget, PolyError, PolyErrorKind, QQ, CoefficientRing, DensePoly, SparsePoly, RealAlgebraic, check_real_algebraic, real_rational, evaluate_dense
 from polynomials import NumericDomain, FloatDomain, BallDomain, ComplexBallDomain, NumericBox, numeric_value, numeric_bounds, NumericDensePoly, NumericSparsePoly, NumericTerm, MonomialOrder
 from ._algebraic_value import Real, Complex, _copy_witness, _plain
 from ._common import _allocation, _charge_size, _sum, _product
@@ -38,18 +38,18 @@ def _width(bits: Int, mut budget: Budget) raises PolyError -> QQ:
 def _refine(var witness: RealAlgebraic, width: QQ, mut budget: Budget) raises PolyError -> RealAlgebraic:
     if witness.rational:
         return witness^
-    var low_variations = sign_changes(witness.sequence, witness.low, budget)
+    # A checked witness changes sign across its interval at its single root.
+    var low_sign = evaluate_dense(witness.polynomial, witness.low, budget).value.sign()
     while witness.high.sub(witness.low, budget).sub(width, budget).value.sign() > 0:
         budget.charge(1)
         var middle = witness.low.add(witness.high, budget).mul(QQ(Rational(2)).inverse(budget), budget)
-        if evaluate_dense(witness.polynomial, middle, budget).is_zero():
+        var middle_sign = evaluate_dense(witness.polynomial, middle, budget).value.sign()
+        if middle_sign == 0:
             return real_rational(middle, budget)
-        var middle_variations = sign_changes(witness.sequence, middle, budget)
-        if low_variations - middle_variations == 1:
-            witness.high = middle^
-        else:
+        if middle_sign == low_sign:
             witness.low = middle^
-            low_variations = middle_variations
+        else:
+            witness.high = middle^
     if not check_real_algebraic(witness, budget):
         raise PolyError(PolyErrorKind.DOMAIN, "algebraic refinement failed verification")
     return witness^

@@ -1,5 +1,6 @@
 """Reusable product trees and independently checked exact interpolation."""
-from .coefficients import CoefficientField, ModInt
+from .coefficients import CoefficientField, ModInt, Modulus, QQ
+from ._interpolate_rational import _interpolate_integer_nodes
 from .dense import DensePoly
 from .coefficient_buffer import _view
 from .errors import Budget, PolyError, PolyErrorKind, _allocation, _charge_size, _sum, _product
@@ -9,6 +10,8 @@ from ._coefficient_ops import _copy
 from ._dense_ops import _remainder
 from ._toolkit_exact import _ExactOps
 from ._toolkit_ops import _values, _hermite_values
+from ._nmod import _Field, _field, _to, _from
+from ._multipoint import _Tree, _evaluate as _tree_evaluate, _interpolate as _tree_interpolate, _inverse_weights
 
 
 def _validate[C: CoefficientField](values: List[C], ring: C.Context, mut budget: Budget) raises PolyError:
@@ -41,6 +44,8 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
     var _left: List[Int]
     var _right: List[Int]
     var _inverse_weights: List[Self.C]
+    var _tree: Optional[_Tree]
+    """Odd prime fields keep a native residue tree instead of the generic products."""
 
     @staticmethod
     def prepare( variable: Int64, ring: Self.C.Context, points: List[Self.C], mut budget: Budget) raises PolyError -> Self:
@@ -62,6 +67,12 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
         var prepared_variable = variable
         var prepared_ring = ring.copy()
         var prepared_points = _values[_ExactOps[Self.C]](_view(points), len(points), ring, budget)
+        comptime if Self.C == ModInt:
+            ref field = rebind[Modulus](ring)
+            if _native(field) and len(points) > 1:
+                var f = _field(field.value)
+                var tree = _Tree(_residues(rebind[List[ModInt]](points), f, budget), f, budget)
+                return Self(prepared_variable, prepared_ring^, prepared_points^, List[DensePoly[Self.C]](), List[Int](), List[Int](), List[Self.C](), Optional(tree^))
         var capacity = _product(len(points), 2)
         _allocation[DensePoly[Self.C]](capacity, budget)
         _allocation[Int](_product(capacity, 2), budget)
@@ -92,7 +103,7 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
                     prepared_left.append(left)
                     prepared_right.append(right)
             level = next^
-        return Self(prepared_variable, prepared_ring^, prepared_points^, prepared_products^, prepared_left^, prepared_right^, List[Self.C]())
+        return Self(prepared_variable, prepared_ring^, prepared_points^, prepared_products^, prepared_left^, prepared_right^, List[Self.C](), None)
 
     @staticmethod
     def prepare_interpolation(variable: Int64, ring: Self.C.Context, points: List[Self.C], mut budget: Budget) raises PolyError -> Self:
@@ -117,6 +128,12 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
     def _weights(self, mut budget: Budget) raises PolyError -> List[Self.C]:
         if not len(self._points):
             return List[Self.C]()
+        comptime if Self.C == ModInt:
+            if self._tree:
+                ref field = rebind[Modulus](self._ring)
+                var f = _field(field.value)
+                var native = _inverse_weights(self._tree.value(), f, budget)
+                return rebind_var[List[Self.C]](_modints(native, field, f, budget))
         var weights = self.evaluate(_derivative_dense(self._products[len(self._products) - 1], budget), budget)
         for i in range(len(weights)):
             weights[i] = weights[i].inverse(budget)
@@ -149,6 +166,13 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
         var result = List[Self.C]()
         if not len(self._points):
             return result^
+        comptime if Self.C == ModInt:
+            if self._tree:
+                ref field = rebind[Modulus](self._ring)
+                var f = _field(field.value)
+                var coefficients = _residues(rebind[List[ModInt]](poly.coefficients.to_list(budget)), f, budget)
+                var values = _tree_evaluate(self._tree.value(), coefficients, f, budget)
+                return rebind_var[List[Self.C]](_modints(values, field, f, budget))
         var count = len(self._products)
         _allocation[DensePoly[Self.C]](count, budget)
         var remainders = List[DensePoly[Self.C]](length=count, fill=DensePoly[Self.C](self._variable, self._ring.copy()))
@@ -194,6 +218,13 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
         return self._interpolate(values, weights, budget)
 
     def _interpolate(self, values: List[Self.C], weights: List[Self.C], mut budget: Budget) raises PolyError -> DensePoly[Self.C]:
+        comptime if Self.C == ModInt:
+            if self._tree:
+                ref field = rebind[Modulus](self._ring)
+                var f = _field(field.value)
+                var native = _tree_interpolate(self._tree.value(), _residues(rebind[List[ModInt]](values), f, budget), _residues(rebind[List[ModInt]](weights), f, budget), f, budget)
+                var coefficients = _modints(native, field, f, budget)
+                return rebind_var[DensePoly[Self.C]](DensePoly[ModInt].from_coefficients(self._variable, field, coefficients^, budget))
         var count = len(self._products)
         _allocation[DensePoly[Self.C]](count, budget)
         var parts = List[DensePoly[Self.C]](capacity=count)
@@ -216,6 +247,27 @@ struct MultipointPlan[C: CoefficientField](Copyable, Movable):
         return result^
 
 
+def _residues(values: List[ModInt], f: _Field, mut budget: Budget) raises PolyError -> List[UInt64]:
+    _allocation[UInt64](len(values), budget)
+    var result = List[UInt64](capacity=len(values))
+    for v in values:
+        result.append(_to(v.value, f))
+    return result^
+
+
+def _modints(values: List[UInt64], ring: Modulus, f: _Field, mut budget: Budget) raises PolyError -> List[ModInt]:
+    _allocation[ModInt](len(values), budget)
+    var result = List[ModInt](capacity=len(values))
+    for v in values:
+        result.append(ModInt(_from(v, f), ring))
+    return result^
+
+
+def _native(ring: Modulus) -> Bool:
+    """Whether a word prime field has native residue trees (odd primes)."""
+    return ring.value > 2
+
+
 def interpolate[C: CoefficientField](variable: Int64, ring: C.Context, points: List[C], values: List[C], mut budget: Budget) raises PolyError -> DensePoly[C]:
     """Interpolate distinct points over an exact field.
 
@@ -235,6 +287,10 @@ def interpolate[C: CoefficientField](variable: Int64, ring: C.Context, points: L
     Raises:
         PolyError: DOMAIN for invalid data, LIMIT or CAPACITY on work limits.
     """
+    comptime if C == QQ:
+        var fast = _interpolate_integer_nodes(variable, rebind[List[QQ]](points), rebind[List[QQ]](values), budget)
+        if fast:
+            return rebind_var[DensePoly[C]](fast.take())
     var plan = MultipointPlan[C].prepare(variable, ring, points, budget)
     return plan.interpolate(values, budget)
 

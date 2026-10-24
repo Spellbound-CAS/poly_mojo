@@ -16,7 +16,7 @@ def bad(text: String) raises:
 
 def main() raises:
     var prefix = "POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n0\n1\n"
-    var body = "1\n2\n2\n2\n-2\n1\n0\n0\n"
+    var body = "3\n2\n2\n2\n-2\n1\n"
     var fixture = String(prefix, body)
     for length in range(fixture.byte_length()):
         bad(String(fixture[byte=0:length]))
@@ -25,19 +25,21 @@ def main() raises:
     bad(String("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nQQbar\n0\n1\n", body))
     bad(String("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n-0\n1\n", body))
     bad(String("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nAA\n0\n01\n", body))
-    bad(String(prefix, "1\n2/1\n2\n2\n-2\n1\n0\n0\n"))
-    bad(String(prefix, "1\n2\n3\n2\n-2\n1\n0\n0\n"))
-    bad(String(prefix, "1\n2\n2\n2\n-3\n1\n0\n0\n"))
-    bad(String(prefix, "1\n0\n0\n2\n0\n1\n0\n0\n"))
-    bad(String(prefix, "1\n2\n2\n3\n-2\n1\n0\n0\n0\n"))
-    # x^2-2, interval (1,2), Sturm [x^2-2,2x,2], quotients [x/2,x].
-    var irrational = "0\n1\n2\n3\n-2\n0\n1\n3\n3\n-2\n0\n1\n2\n0\n2\n1\n2\n2\n2\n0\n1/2\n2\n0\n1\n"
+    bad(String(prefix, "3\n2/1\n2\n2\n-2\n1\n"))
+    bad(String(prefix, "3\n2\n3\n2\n-2\n1\n"))
+    bad(String(prefix, "3\n2\n2\n2\n-3\n1\n"))
+    bad(String(prefix, "3\n0\n0\n2\n0\n1\n"))
+    bad(String(prefix, "3\n2\n2\n3\n-2\n1\n0\n"))
+    # Tags 0 and 1 carried Sturm sequences and are no longer accepted.
+    bad(String(prefix, "1\n2\n2\n2\n-2\n1\n0\n0\n"))
+    # x^2-2 on (1,2): one sign change and Descartes bound 1.
+    var irrational = "2\n1\n2\n3\n-2\n0\n1\n"
     var root = dense.loads[algebraic.Real](String(prefix, irrational))[0]
     assert_true(root == dense.root_between([-2, 0, 1], 1, 2))
-    bad(String(prefix, irrational.replace("1/2", "1/3")))
-    bad(String(prefix, irrational.replace("0\n1\n2\n3", "0\n2\n3\n3")))
+    bad(String(prefix, "2\n-2\n2\n3\n-2\n0\n1\n"))
+    bad(String(prefix, "2\n2\n1\n3\n-2\n0\n1\n"))
     var invalid = root.copy()
-    invalid._data[].plain.sequence.quotients[0].coefficients[1] = QQ(Rational(1, 3))
+    invalid._data[].plain.low = QQ(Rational(-2))
     var rejected = False
     try:
         _ = dense.dumps([invalid.copy()])
@@ -75,7 +77,7 @@ def main() raises:
     assert_true(rejected)
     rejected = False
     try:
-        _ = dense.loads[algebraic.Complex](String("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nQQbar\n0\n1\n", body, "1\n2\n3\n2\n-2\n1\n0\n0\n"))
+        _ = dense.loads[algebraic.Complex](String("POLYNOMIALS-ALGEBRAIC 1\nDENSE\nQQbar\n0\n1\n", body, "3\n2\n3\n2\n-2\n1\n"))
     except e:
         rejected = e.kind == PolyErrorKind.ENCODING
     assert_true(rejected)

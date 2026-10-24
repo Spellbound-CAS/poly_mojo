@@ -5,17 +5,21 @@ from support.check import Checker
 
 
 @fieldwise_init
-struct RealCollector(RealRootSink):
-    var sequence: Optional[SturmSequence]
-    var cells: List[RealRootCell]
+struct RealCollector(DescartesRootSink):
+    var squarefree: DensePoly[ZZ]
+    var cofactor: DensePoly[ZZ]
+    var bound_exponent: Int
+    var items: List[DescartesRootItem]
 
-    def begin(mut self, sequence: Optional[SturmSequence], mut budget: Budget) raises PolyError:
+    def begin(mut self, squarefree: DensePoly[ZZ], cofactor: DensePoly[ZZ], bound_exponent: Int, mut budget: Budget) raises PolyError:
         budget.charge(1)
-        self.sequence = sequence.copy()
+        self.squarefree = squarefree.copy()
+        self.cofactor = cofactor.copy()
+        self.bound_exponent = bound_exponent
 
-    def write(mut self, var cell: RealRootCell, mut budget: Budget) raises PolyError:
+    def write(mut self, var item: DescartesRootItem, mut budget: Budget) raises PolyError:
         budget.charge(1)
-        self.cells.append(cell^)
+        self.items.append(item^)
 
 
 @fieldwise_init
@@ -46,44 +50,54 @@ def main() raises:
     var work = Budget()
     var f = DensePoly[QQ].from_coefficients(0, NoContext(), [QQ(Rational(-2)), QQ(Rational(0)), QQ(Rational(1))], work)
     var options = NumericOptions(absolute_bits=2, max_subdivisions=1024)
-    var checker = RealRootStreamChecker.from_dense(f, options, work)
+    var checker = DescartesStreamChecker.from_dense(f, options, work)
     var receipt = real_roots_exact_to(f, options, checker, work)
     c.check(checker.finish(receipt, work), "direct real producer to independent checker")
     receipt.items += 1
     c.check(not checker.finish(receipt, work), "real receipt count binding")
-    var collector = RealCollector(None, List[RealRootCell]())
+    var collector = RealCollector(DensePoly[ZZ](0, NoContext()), DensePoly[ZZ](0, NoContext()), 0, List[DescartesRootItem]())
     receipt = real_roots_exact_to(f, options, collector, work)
     var materialized = real_roots_exact(f, options, work)
-    c.check(len(materialized.cells) == len(collector.cells), "same real traversal")
-    checker = RealRootStreamChecker.from_dense(f, options, work)
-    checker.begin(collector.sequence, work)
+    c.check(len(materialized.certificate.leaves) == len(collector.items) and receipt.items == len(collector.items), "same real traversal")
+    checker = DescartesStreamChecker.from_dense(f, options, work)
+    checker.begin(collector.squarefree, collector.cofactor, collector.bound_exponent, work)
     c.check(not checker.finish(receipt, work), "empty prefix cannot prove completeness")
-    for i in range(len(collector.cells)):
-        c.check(collector.cells[i].interval == materialized.cells[i].interval and collector.cells[i].count == materialized.cells[i].count, "materialized/streamed real witnesses agree")
-        c.check(checker.accept(collector.cells[i].copy(), work), "consume real cell")
+    for i in range(len(collector.items)):
+        ref leaf = materialized.certificate.leaves[i]
+        c.check(collector.items[i].leaf.low == leaf.low and collector.items[i].leaf.high == leaf.high and collector.items[i].leaf.variations == leaf.variations, "materialized/streamed real leaves agree")
+        c.check(checker.accept(collector.items[i].copy(), work), "consume real leaf")
     c.check(checker.finish(receipt, work), "independent real replay completion")
-    c.check(not checker.accept(collector.cells[0].copy(), work) and not checker.finish(receipt, work), "extra real witness permanently rejected")
-    checker = RealRootStreamChecker.from_dense(f, options, work)
-    checker.begin(collector.sequence, work)
-    var corrupt = collector.cells[0].copy()
-    corrupt.count += 1
-    c.check(not checker.accept(corrupt^, work), "corrupt local real count")
-    checker = RealRootStreamChecker.from_dense(f, options, work)
-    checker.begin(collector.sequence, work)
+    c.check(not checker.accept(collector.items[0].copy(), work) and not checker.finish(receipt, work), "extra real witness permanently rejected")
+    checker = DescartesStreamChecker.from_dense(f, options, work)
+    checker.begin(collector.squarefree, collector.cofactor, collector.bound_exponent, work)
+    var corrupt = collector.items[0].copy()
+    corrupt.leaf.variations += 1
+    c.check(not checker.accept(corrupt^, work), "corrupt local real bound")
+    checker = DescartesStreamChecker.from_dense(f, options, work)
+    checker.begin(collector.squarefree, collector.cofactor, collector.bound_exponent, work)
+    c.check(not checker.accept(collector.items[1].copy(), work), "a leaf out of order breaks coverage")
+    checker = DescartesStreamChecker.from_dense(f, options, work)
+    checker.begin(collector.squarefree, collector.cofactor, collector.bound_exponent, work)
     var tiny = Budget(0)
     try:
-        _ = checker.accept(collector.cells[0].copy(), tiny)
+        _ = checker.accept(collector.items[0].copy(), tiny)
         c.check(False, "root stream budget ignored")
     except e:
         c.check(e.kind == PolyErrorKind.LIMIT and not checker.finish(receipt, work), "failed root stream cannot complete")
-    var bad_sequence = collector.sequence.copy()
-    bad_sequence.value().polynomials[0].coefficients[0] = QQ(Rational(7))
-    checker = RealRootStreamChecker.from_dense(f, options, work)
+    var bad_squarefree = collector.squarefree.copy()
+    bad_squarefree.coefficients[0] = ZZ(7)
+    checker = DescartesStreamChecker.from_dense(f, options, work)
     try:
-        checker.begin(bad_sequence, work)
-        c.check(False, "wrong Sturm header accepted")
+        checker.begin(bad_squarefree, collector.cofactor, collector.bound_exponent, work)
+        c.check(False, "wrong squarefree header accepted")
     except e:
-        c.check(e.kind == PolyErrorKind.DOMAIN, "independent Sturm header validation")
+        c.check(e.kind == PolyErrorKind.DOMAIN, "independent squarefree header validation")
+    checker = DescartesStreamChecker.from_dense(f, options, work)
+    try:
+        checker.begin(collector.squarefree, collector.cofactor, collector.bound_exponent - 1, work)
+        c.check(False, "too small a bound accepted")
+    except e:
+        c.check(e.kind == PolyErrorKind.DOMAIN, "independent bound validation")
     var complex_checker = ComplexRootStreamChecker.from_dense(f, options, work)
     receipt = complex_roots_exact_to(f, options, complex_checker, work)
     c.check(complex_checker.finish(receipt, work), "direct complex producer to checker")
@@ -106,9 +120,9 @@ def main() raises:
     receipt = complex_roots_exact_to(constant, options, complex_checker, work)
     c.check(complex_checker.finish(receipt, work) and receipt.items == 0, "constant has empty complex root stream")
     var numeric = numeric_from_dense[BallDomain](f, BallContext(128), work)
-    checker = RealRootStreamChecker.from_numeric(numeric, options, work)
-    receipt = real_roots_numeric_to(numeric, options, checker, work)
-    c.check(checker.finish(receipt, work), "numerical real stream")
+    var numeric_checker = RealRootStreamChecker.from_numeric(numeric, options, work)
+    receipt = real_roots_numeric_to(numeric, options, numeric_checker, work)
+    c.check(numeric_checker.finish(receipt, work), "numerical real stream")
     complex_checker = ComplexRootStreamChecker.from_numeric(numeric, options, work)
     receipt = complex_roots_numeric_to(numeric, options, complex_checker, work)
     c.check(complex_checker.finish(receipt, work), "numerical complex stream")
@@ -143,6 +157,26 @@ def main() raises:
     bad_event = cad_collector.events[1].copy()
     bad_event.signs[0].relation = 0
     c.check(not cad_checker.accept(bad_event^, work), "corrupt terminal sign rejected")
+    var exact = CADSignWitness(0, List[RealAlgebraic](), -1, List[DensePoly[QQ]]())
+    cad_checker = CADStreamChecker.prepare(inputs, work)
+    cad_checker.begin(cad_collector.projection.value(), work)
+    bad_event = cad_collector.events[0].copy()
+    bad_event.witnesses.append(exact.copy())
+    c.check(not cad_checker.accept(bad_event^, work), "stack event with witnesses rejected")
+    cad_checker = CADStreamChecker.prepare(inputs, work)
+    cad_checker.begin(cad_collector.projection.value(), work)
+    c.check(cad_checker.accept(cad_collector.events[0].copy(), work), "valid stack before witnesses")
+    bad_event = cad_collector.events[1].copy()
+    c.check(len(bad_event.witnesses) == len(inputs), "terminal event carries one witness per input")
+    bad_event.witnesses.append(exact.copy())
+    c.check(not cad_checker.accept(bad_event^, work), "extra terminal witness rejected")
+    cad_checker = CADStreamChecker.prepare(inputs, work)
+    cad_checker.begin(cad_collector.projection.value(), work)
+    _ = cad_checker.accept(cad_collector.events[0].copy(), work)
+    bad_event = cad_collector.events[1].copy()
+    bad_event.witnesses[0] = exact.copy()
+    if len(bad_event.evaluations) == 0:
+        c.check(not cad_checker.accept(bad_event^, work), "exact witness without its evaluation rejected")
     cad_checker = CADStreamChecker.prepare(inputs, work)
     cad_checker.begin(cad_collector.projection.value(), work)
     tiny = Budget(0)

@@ -127,6 +127,13 @@ def _polynomial[I: Iterable](values: I, mut budget: Budget) raises PolyError -> 
         return dense.asarray(values, budget)
 
 
+def _prepared_pair[k: Int](a: Array[k], b: Array[k], n: Int) -> Bool:
+    """Whether two prepared series already share order n, field and variable, so a binary operation can read them without copies."""
+    ref x = a._core[].polynomial
+    ref y = b._core[].polynomial
+    return a.order() == n and b.order() == n and a.modulus() == b.modulus() and x.variable == 0 and y.variable == 0
+
+
 def _requested(a: Int, b: Int, requested: Int) raises PolyError -> Int:
     if requested < -1:
         raise PolyError(PolyErrorKind.DOMAIN, "series order must be nonnegative")
@@ -218,6 +225,9 @@ def add[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget, *, order: Int 
     """
     var n = _requested(_order(a), _order(b), order)
     comptime k = _FieldKind[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]
+    comptime if A == Array[k] and B == Array[k]:
+        if _prepared_pair[k](rebind[Array[k]](a), rebind[Array[k]](b), n):
+            return _wrap_series[k](rebind[Array[k]](a)._core[].add(rebind[Array[k]](b)._core[], budget), budget)
     var left = _polynomial(a, budget)
     var right = _polynomial(b, budget)
     var ctx = _data_context[k](left.modulus(), right.modulus(), budget)
@@ -272,6 +282,9 @@ def subtract[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget, *, order:
     """
     var n = _requested(_order(a), _order(b), order)
     comptime k = _FieldKind[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]
+    comptime if A == Array[k] and B == Array[k]:
+        if _prepared_pair[k](rebind[Array[k]](a), rebind[Array[k]](b), n):
+            return _wrap_series[k](rebind[Array[k]](a)._core[].sub(rebind[Array[k]](b)._core[], budget), budget)
     var left = _polynomial(a, budget)
     var right = _polynomial(b, budget)
     var ctx = _data_context[k](left.modulus(), right.modulus(), budget)
@@ -326,6 +339,9 @@ def multiply[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget, *, order:
     """
     var n = _requested(_order(a), _order(b), order)
     comptime k = _FieldKind[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]
+    comptime if A == Array[k] and B == Array[k]:
+        if _prepared_pair[k](rebind[Array[k]](a), rebind[Array[k]](b), n):
+            return _wrap_series[k](rebind[Array[k]](a)._core[].mul(rebind[Array[k]](b)._core[], budget), budget)
     var left = _polynomial(a, budget)
     var right = _polynomial(b, budget)
     var ctx = _data_context[k](left.modulus(), right.modulus(), budget)
@@ -380,6 +396,9 @@ def divide[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget, *, order: I
     """
     var n = _requested(_order(a), _order(b), order)
     comptime k = _FieldKind[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]
+    comptime if A == Array[k] and B == Array[k]:
+        if _prepared_pair[k](rebind[Array[k]](a), rebind[Array[k]](b), n):
+            return _wrap_series[k](rebind[Array[k]](a)._core[].divide(rebind[Array[k]](b)._core[], budget), budget)
     var left = _polynomial(a, budget)
     var right = _polynomial(b, budget)
     var ctx = _data_context[k](left.modulus(), right.modulus(), budget)
@@ -434,6 +453,9 @@ def compose[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget, *, order: 
     """
     var n = _requested(_order(a), _order(b), order)
     comptime k = _FieldKind[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]
+    comptime if A == Array[k] and B == Array[k]:
+        if _prepared_pair[k](rebind[Array[k]](a), rebind[Array[k]](b), n):
+            return _wrap_series[k](rebind[Array[k]](a)._core[].compose(rebind[Array[k]](b)._core[], budget), budget)
     var left = _polynomial(a, budget)
     var right = _polynomial(b, budget)
     var ctx = _data_context[k](left.modulus(), right.modulus(), budget)
@@ -717,6 +739,117 @@ def revert[I: Iterable](values: I, *, max_steps: UInt64 = UInt64.MAX, order: Int
     """
     var budget = Budget(max_steps)
     return revert(values, budget, order=order)
+
+
+def _constant[C: CoefficientField](value: C, like: TruncatedSeries[C], order: Int, mut budget: Budget) raises PolyError -> TruncatedSeries[C]:
+    var poly = DensePoly[C].from_coefficients(like.polynomial.variable, like.polynomial.ring, [value.copy()], budget)
+    return TruncatedSeries[C].from_polynomial(poly, order, budget)
+
+
+def _series_sqrt[C: CoefficientField](f: TruncatedSeries[C], mut budget: Budget) raises PolyError -> TruncatedSeries[C]:
+    return f.sqrt(budget)
+
+
+def _series_power[C: CoefficientField](f: TruncatedSeries[C], exponent: Int, mut budget: Budget) raises PolyError -> TruncatedSeries[C]:
+    if exponent < 0:
+        raise PolyError(PolyErrorKind.DOMAIN, "series power needs a nonnegative exponent")
+    var result = _constant(C.one(f.polynomial.ring), f, f.order, budget)
+    var base = f.copy()
+    var remaining = exponent
+    while remaining:
+        budget.charge(1)
+        if remaining & 1:
+            result = result.mul(base, budget)
+        remaining >>= 1
+        if remaining:
+            base = base.mul(base, budget)
+    return result^
+
+
+def sqrt[I: Iterable](values: I, mut budget: Budget, *, order: Int = -1) raises PolyError -> Array[_FieldKind[_Kind[_Element[I]]]]:
+    """Compute the square root of a series whose constant term is one.
+
+    Parameters:
+        I: The inferred input iterable type.
+
+    Args:
+        values: A prepared series or ascending exact coefficients.
+        budget: The shared work allowance, including preparation and result storage.
+        order: Known coefficient count; omit only when a prepared series supplies it. An explicit lower order truncates inputs.
+
+    Returns:
+        The square root with constant term one, at the same order.
+
+    Raises:
+        PolyError: DOMAIN for another constant term or a field of characteristic two, LIMIT for exhausted work, or CAPACITY for unrepresentable storage.
+    """
+    var p = _prepare(values, order, budget)
+    return _wrap_series[_FieldKind[_Kind[_Element[I]]]](_series_sqrt(p._core[], budget), budget)
+
+
+def sqrt[I: Iterable](values: I, *, max_steps: UInt64 = UInt64.MAX, order: Int = -1) raises PolyError -> Array[_FieldKind[_Kind[_Element[I]]]]:
+    """Compute the square root of a series whose constant term is one.
+
+    Parameters:
+        I: The inferred input iterable type.
+
+    Args:
+        values: A prepared series or ascending exact coefficients.
+        max_steps: The complete call's work allowance; defaults to UInt64.MAX.
+        order: Known coefficient count; omit only when a prepared series supplies it. An explicit lower order truncates inputs.
+
+    Returns:
+        The square root with constant term one, at the same order.
+
+    Raises:
+        PolyError: DOMAIN for another constant term or a field of characteristic two, LIMIT for exhausted work, or CAPACITY for unrepresentable storage.
+    """
+    var budget = Budget(max_steps)
+    return sqrt(values, budget, order=order)
+
+
+def power[I: Iterable](values: I, exponent: Int, mut budget: Budget, *, order: Int = -1) raises PolyError -> Array[_FieldKind[_Kind[_Element[I]]]]:
+    """Raise a series to a nonnegative integer power at its order.
+
+    Parameters:
+        I: The inferred input iterable type.
+
+    Args:
+        values: A prepared series or ascending exact coefficients.
+        exponent: A nonnegative exponent; zero returns one.
+        budget: The shared work allowance, including preparation and result storage.
+        order: Known coefficient count; omit only when a prepared series supplies it. An explicit lower order truncates inputs.
+
+    Returns:
+        The truncated power at the same order.
+
+    Raises:
+        PolyError: DOMAIN for a negative exponent, LIMIT for exhausted work, or CAPACITY for unrepresentable storage.
+    """
+    var p = _prepare(values, order, budget)
+    return _wrap_series[_FieldKind[_Kind[_Element[I]]]](_series_power(p._core[], exponent, budget), budget)
+
+
+def power[I: Iterable](values: I, exponent: Int, *, max_steps: UInt64 = UInt64.MAX, order: Int = -1) raises PolyError -> Array[_FieldKind[_Kind[_Element[I]]]]:
+    """Raise a series to a nonnegative integer power at its order.
+
+    Parameters:
+        I: The inferred input iterable type.
+
+    Args:
+        values: A prepared series or ascending exact coefficients.
+        exponent: A nonnegative exponent; zero returns one.
+        max_steps: The complete call's work allowance; defaults to UInt64.MAX.
+        order: Known coefficient count; omit only when a prepared series supplies it. An explicit lower order truncates inputs.
+
+    Returns:
+        The truncated power at the same order.
+
+    Raises:
+        PolyError: DOMAIN for a negative exponent, LIMIT for exhausted work, or CAPACITY for unrepresentable storage.
+    """
+    var budget = Budget(max_steps)
+    return power(values, exponent, budget, order=order)
 
 
 def negative[I: Iterable](values: I, mut budget: Budget, *, order: Int = -1) raises PolyError -> Array[_FieldKind[_Kind[_Element[I]]]]:

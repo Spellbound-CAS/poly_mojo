@@ -376,10 +376,19 @@ def _write[T: Copyable & Deinitable, S: PolynomialTextSink](value: T, mut writer
 
 
 def _read[T: Copyable & Deinitable, S: PolynomialTextSource](mut reader: _Reader[S], mut budget: Budget) raises PolyError -> T:
-    if reader.line(budget) != _schema[T](budget):
+    var tag = reader.line(budget)
+    var expected = _schema[T](budget)
+    var legacy = False
+    comptime if conforms_to(T, _Archive):
+        legacy = tag != expected and _result_io._legacy_cad_tag[downcast[T, _Archive]](tag, budget)
+    if tag != expected and not legacy:
         raise _bad("value record has an incompatible type or shape")
     comptime if conforms_to(T, _Archive):
-        return rebind_var[T](_result_io._read[downcast[T, _Archive]](reader, budget))
+        var saved = reader.legacy_cad_archive
+        reader.legacy_cad_archive = legacy
+        var result = _result_io._read[downcast[T, _Archive]](reader, budget)
+        reader.legacy_cad_archive = saved
+        return rebind_var[T](result^)
     elif conforms_to(T, _Record):
         comptime V = downcast[T, _Record]
         comptime C = V._Item

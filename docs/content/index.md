@@ -67,10 +67,9 @@ for handling work exhaustion and inconclusive numerical outcomes.
 
 The [architecture overview](architecture/overview.md) explains the package's
 layers and data flow. The [mathematical chapters](theory/index.md) give
-algorithms, proofs, and certificate relations. Developers extending the
-library can start with the [core API](reference/core-api.md) and the
-[maintenance guide](contributing/handoff.md), then consult the contracts for
-the component they are changing.
+algorithms, proofs, and certificate relations. The
+[core API](reference/core-api.md) documents mutable polynomial values and
+the underlying algebra operations.
 
 See the [example gallery](examples/index.md) for complete programs and
 [support and limitations](guides/status.md) for the current scope.

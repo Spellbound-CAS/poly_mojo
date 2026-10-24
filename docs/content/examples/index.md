@@ -49,5 +49,4 @@ developers extending the library; applications use the programs above.
 
 To run a downloaded example, [install the package](../start/installation.md)
 and run it with `pixi run mojo run`, or run it with `mojo -I build` inside a
-checkout's Pixi environment. Contributors can run the complete example
-matrix with the commands in [maintaining the docs](../contributing/documentation.md).
+checkout's Pixi environment.

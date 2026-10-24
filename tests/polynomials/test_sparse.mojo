@@ -5,6 +5,8 @@ from support.check import Checker
 from support.rng import SplitMix64
 from support.gen import polynomial
 from support.kernel_vectors import read_lines, parse_poly
+from polynomials.sparse import _sorted_indices, _ExactTermOrder
+from polynomials._ordering import _stable_indices
 
 def laws[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
     var rng = SplitMix64(101)
@@ -41,12 +43,49 @@ def laws[C: CoefficientRing](ctx: C.Context, mut c: Checker) raises:
                 reversed.append(a.terms[len(a.terms) - 1 - i].copy())
             c.check(SparsePoly[C].from_terms(reversed^, order, ctx, work) == a, "deterministic normalization")
 
+def kernel_keys(mut c: Checker) raises:
+    """Packed KERNEL sort keys order terms exactly as the pairwise comparison does."""
+    var work = Budget()
+    var order = MonomialOrder()
+    var rng = SplitMix64(733)
+    var same = True
+    for trial in range(60):
+        var terms = List[Term[ZZ]]()
+        var n = 1 + rng.below(40)
+        for _ in range(n):
+            var pairs = List[Tuple[Int64, UInt32]]()
+            # Cases 0..39 fit keys; 40..49 have a fifth pair; 50..59 a wide exponent.
+            var count = rng.below(5) if trial < 40 else (5 if trial < 50 else 1 + rng.below(3))
+            var variable = Int64(0)
+            for i in range(count):
+                variable += Int64(1 + rng.below(3))
+                var e = UInt32(1 + rng.below(4))
+                if trial >= 50 and i == 0:
+                    e = UInt32(0x10000 + rng.below(3))
+                pairs.append((variable, e))
+            # Repeat monomials often, so equal keys test stability.
+            if rng.below(3) == 0 and len(terms) > 0:
+                terms.append(Term[ZZ](terms[rng.below(len(terms))].monomial.copy(), ZZ(Integer(rng.below(9) - 4))))
+            else:
+                terms.append(Term[ZZ](Monomial(pairs^, work), ZZ(Integer(rng.below(9) - 4))))
+        var got = _sorted_indices(terms, order, NoContext(), work)
+        var expected = _stable_indices[_ExactTermOrder[ZZ]](terms, order, work)
+        same = same and got == expected
+    c.check(same, "packed KERNEL keys sort stably as the pairwise comparison")
+    var large = List[Term[ZZ]]()
+    large.append(Term[ZZ](Monomial([(Int64(0xFFFE), UInt32(1))], work), ZZ(Integer(1))))
+    large.append(Term[ZZ](Monomial([(Int64(0xFFFF), UInt32(1))], work), ZZ(Integer(1))))
+    large.append(Term[ZZ](Monomial([(Int64(3), UInt32(0xFFFF))], work), ZZ(Integer(1))))
+    c.check(_sorted_indices(large, order, NoContext(), work) == _stable_indices[_ExactTermOrder[ZZ]](large, order, work), "variables and exponents at the key limits")
+
+
 def main() raises:
     var c = Checker("sparse")
     var work = Budget()
     laws[ZZ](NoContext(), c)
     laws[QQ](NoContext(), c)
     laws[ModInt](Modulus(101, work), c)
+    kernel_keys(c)
     var count = 0
     var counts = List[Int](length=4, fill=0)
     for line in read_lines("tests/reference/kernel/poly_ops.txt"):

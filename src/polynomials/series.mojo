@@ -5,7 +5,13 @@ from ._toolkit_exact import _ExactOps, _use_newton
 from .coefficient_buffer import _view
 from .errors import Budget, PolyError, PolyErrorKind, _sum
 from ._toolkit_ops import _values, _add_values, _mul_values, _divide_values, _compose_values, _derivative_values, _integral_values
-from ._series_exact import _exact_log, _exact_exp
+from ._series_exact import _exact_log, _exact_exp, _exact_divide
+from ._series_nmod import _native_series
+from ._series_rational import _inverse_rational, _log_rational, _exp_rational, _sqrt_rational
+from .coefficients import ModInt, Modulus, QQ
+
+comptime _RATIONAL_NEWTON = 16
+"""Order from which rational inverses and logarithms run on integer numerators."""
 from ._series_ops import _newton_divide, _series_shape, _series_same_order, _series_truncation, _series_composition, _revert_values
 
 
@@ -137,7 +143,19 @@ struct TruncatedSeries[C: CoefficientField](Copyable, Movable):
             PolyError: DOMAIN for incompatible inputs or unavailable divisions, LIMIT or CAPACITY on work limits.
         """
         self._same(other, budget)
-        var values = _newton_divide[_ExactOps[Self.C]](_view(self.polynomial.coefficients), _view(other.polynomial.coefficients), self.order, self.polynomial.ring, budget) if _use_newton[Self.C](self.order, len(other.polynomial.coefficients)) else _divide_values[_ExactOps[Self.C]](_view(self.polynomial.coefficients), _view(other.polynomial.coefficients), self.order, self.polynomial.ring, budget)
+        comptime if Self.C == ModInt:
+            var inverse = _native_series(rebind[List[ModInt]](other.polynomial.coefficients.to_list(budget)), rebind[Modulus](self.polynomial.ring), self.order, 0, budget)
+            if inverse:
+                var quotient = _mul_values[_ExactOps[Self.C]](_view(self.polynomial.coefficients), _view(rebind[List[Self.C]](inverse.value())), self.order, self.polynomial.ring, budget)
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, quotient^, budget), self.order)
+        comptime if Self.C == QQ:
+            if self.order >= _RATIONAL_NEWTON:
+                var divisor = rebind_var[List[QQ]](other.polynomial.coefficients.to_list(budget))
+                var rational = _inverse_rational(_view(divisor), self.order, budget)
+                if rational:
+                    var quotient = _mul_values[_ExactOps[Self.C]](_view(self.polynomial.coefficients), _view(rebind[List[Self.C]](rational.value())), self.order, self.polynomial.ring, budget)
+                    return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, quotient^, budget), self.order)
+        var values = _exact_divide(_view(self.polynomial.coefficients), _view(other.polynomial.coefficients), self.order, self.polynomial.ring, budget) if _use_newton[Self.C](self.order, len(other.polynomial.coefficients)) else _divide_values[_ExactOps[Self.C]](_view(self.polynomial.coefficients), _view(other.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, values^, budget)
         return Self(poly^, self.order)
 
@@ -154,10 +172,20 @@ struct TruncatedSeries[C: CoefficientField](Copyable, Movable):
             PolyError: DOMAIN for incompatible inputs or unavailable divisions, LIMIT or CAPACITY on work limits.
         """
         self._validate(budget)
+        comptime if Self.C == ModInt:
+            var native = _native_series(rebind[List[ModInt]](self.polynomial.coefficients.to_list(budget)), rebind[Modulus](self.polynomial.ring), self.order, 0, budget)
+            if native:
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](native.take()), budget), self.order)
+        comptime if Self.C == QQ:
+            if self.order >= _RATIONAL_NEWTON:
+                var coefficients = rebind_var[List[QQ]](self.polynomial.coefficients.to_list(budget))
+                var rational = _inverse_rational(_view(coefficients), self.order, budget)
+                if rational:
+                    return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](rational.take()), budget), self.order)
         var values: List[Self.C]
         if _use_newton[Self.C](self.order, len(self.polynomial.coefficients)):
             var numerator: List[Self.C] = [_ExactOps[Self.C].integer(1, self.polynomial.ring, budget)]
-            values = _newton_divide[_ExactOps[Self.C]](_view(numerator), _view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
+            values = _exact_divide(_view(numerator), _view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         else:
             values = _divide_values[_ExactOps[Self.C], True](_view(List[Self.C]()), _view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, values^, budget)
@@ -229,6 +257,16 @@ struct TruncatedSeries[C: CoefficientField](Copyable, Movable):
             PolyError: DOMAIN for incompatible inputs or unavailable divisions, LIMIT or CAPACITY on work limits.
         """
         self._validate(budget)
+        comptime if Self.C == ModInt:
+            var native = _native_series(rebind[List[ModInt]](self.polynomial.coefficients.to_list(budget)), rebind[Modulus](self.polynomial.ring), self.order, 1, budget)
+            if native:
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](native.take()), budget), self.order)
+        comptime if Self.C == QQ:
+            if self.order >= _RATIONAL_NEWTON:
+                var coefficients = rebind_var[List[QQ]](self.polynomial.coefficients.to_list(budget))
+                var rational = _log_rational(_view(coefficients), self.order, budget)
+                if rational:
+                    return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](rational.take()), budget), self.order)
         var values = _exact_log(_view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, values^, budget)
         return Self(poly^, self.order)
@@ -246,9 +284,84 @@ struct TruncatedSeries[C: CoefficientField](Copyable, Movable):
             PolyError: DOMAIN for incompatible inputs or unavailable divisions, LIMIT or CAPACITY on work limits.
         """
         self._validate(budget)
+        comptime if Self.C == ModInt:
+            var native = _native_series(rebind[List[ModInt]](self.polynomial.coefficients.to_list(budget)), rebind[Modulus](self.polynomial.ring), self.order, 2, budget)
+            if native:
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](native.take()), budget), self.order)
+        comptime if Self.C == QQ:
+            if self.order >= _RATIONAL_NEWTON:
+                var coefficients = rebind_var[List[QQ]](self.polynomial.coefficients.to_list(budget))
+                var rational = _exp_rational(_view(coefficients), self.order, budget)
+                if rational:
+                    return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](rational.take()), budget), self.order)
         var values = _exact_exp(_view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, values^, budget)
         return Self(poly^, self.order)
+
+    def sqrt(self, mut budget: Budget) raises PolyError -> Self:
+        """Compute a formal square root with constant coefficient one.
+
+        Args:
+            budget: The shared work allowance.
+
+        Returns:
+            The square root with constant term one at the original precision.
+
+        Raises:
+            PolyError: DOMAIN for another constant term or a field of characteristic two, LIMIT or CAPACITY on work limits.
+        """
+        self._validate(budget)
+        var n = self.order
+        if n == 0:
+            return self.copy()
+        ref ring = self.polynomial.ring
+        var one = Self.C.one(ring)
+        if len(self.polynomial.coefficients) == 0 or self.polynomial.coefficients[0] != one:
+            raise PolyError(PolyErrorKind.DOMAIN, "series square root needs the constant term one")
+        var two = one.add(one, budget)
+        if two.is_zero():
+            raise PolyError(PolyErrorKind.DOMAIN, "series square root needs 2 to be invertible")
+        comptime if Self.C == ModInt:
+            var native = _native_series(rebind[List[ModInt]](self.polynomial.coefficients.to_list(budget)), rebind[Modulus](ring), n, 4, budget)
+            if native:
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, ring, rebind_var[List[Self.C]](native.take()), budget), n)
+        comptime if Self.C == QQ:
+            if n >= _RATIONAL_NEWTON:
+                var coefficients = rebind_var[List[QQ]](self.polynomial.coefficients.to_list(budget))
+                var rational = _sqrt_rational(_view(coefficients), n, budget)
+                if rational:
+                    return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, ring, rebind_var[List[Self.C]](rational.take()), budget), n)
+        # g = 1 / sqrt(self) doubles its precision by g <- g + x^known g e / 2
+        # with self g^2 = 1 - x^known e; sqrt(self) = self g.
+        var half = two.inverse(budget)
+        var g: List[Self.C] = [one.copy()]
+        var known = 1
+        while known < n:
+            budget.charge(1)
+            var next = min(2 * known, n)
+            var width = next - known
+            var extended = self._like(g, next, budget)
+            var residual = self.truncate(next, budget).mul(extended.mul(extended, budget), budget)
+            ref high = residual.polynomial.coefficients
+            var error = List[Self.C](capacity=width)
+            for i in range(known, next):
+                error.append(high[i].neg(budget).mul(half, budget) if i < len(high) else Self.C.zero(ring))
+            var low = List[Self.C](capacity=min(width, len(g)))
+            for i in range(min(width, len(g))):
+                low.append(g[i].copy())
+            var correction = self._like(low, width, budget).mul(self._like(error, width, budget), budget)
+            ref values = correction.polynomial.coefficients
+            for i in range(width):
+                g.append(values[i].copy() if i < len(values) else Self.C.zero(ring))
+            known = next
+        return self.mul(self._like(g, n, budget), budget)
+
+    def _like(self, values: List[Self.C], order: Int, mut budget: Budget) raises PolyError -> Self:
+        var copied = List[Self.C](capacity=len(values))
+        for v in values:
+            copied.append(v.copy())
+        var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, copied^, budget)
+        return Self.from_polynomial(poly, order, budget)
 
     def revert(self, mut budget: Budget) raises PolyError -> Self:
         """Invert composition for zero constant and invertible linear term.
@@ -263,6 +376,10 @@ struct TruncatedSeries[C: CoefficientField](Copyable, Movable):
             PolyError: DOMAIN for incompatible inputs or unavailable divisions, LIMIT or CAPACITY on work limits.
         """
         self._validate(budget)
+        comptime if Self.C == ModInt:
+            var native = _native_series(rebind[List[ModInt]](self.polynomial.coefficients.to_list(budget)), rebind[Modulus](self.polynomial.ring), self.order, 3, budget)
+            if native:
+                return Self(DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, rebind_var[List[Self.C]](native.take()), budget), self.order)
         var values = _revert_values[_ExactOps[Self.C]](_view(self.polynomial.coefficients), self.order, self.polynomial.ring, budget)
         var poly = DensePoly[Self.C].from_coefficients(self.polynomial.variable, self.polynomial.ring, values^, budget)
         return Self(poly^, self.order)

@@ -4,8 +4,6 @@ import re
 import sys
 import tomllib
 
-import yaml
-
 from mkdocs.structure.files import File
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,10 +17,6 @@ def on_config(config):
     mojo = re.match(r'[=<>~^ ]*(\d+\.\d+)', pixi['dependencies']['mojo'])
     config.extra['version'] = pixi['workspace']['version']
     config.extra['mojo'] = mojo[1]
-    # A checkout may add unpublished pages; docs/records.yml holds their navigation.
-    records = ROOT / 'docs' / 'records.yml'
-    if records.is_file():
-        config['nav'] = list(config['nav']) + yaml.safe_load(records.read_text())
     return config
 
 

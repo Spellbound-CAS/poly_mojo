@@ -117,6 +117,10 @@ def _masks(mut masks: List[UInt8], fixed: List[Tuple[Int, Real]], mut budget: Bu
 
 
 def _fiber(embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[Int, Real]], mut budget: Budget) raises PolyError -> CADFiber:
+    return CADFiber(_prefix(embedding, fixed, budget), budget)
+
+
+def _prefix(embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[Int, Real]], mut budget: Budget) raises PolyError -> List[RealAlgebraic]:
     var count = len(embedding.value()[].roots) if embedding else 0
     _allocation[RealAlgebraic](_sum(count, len(fixed)), budget)
     var values = List[RealAlgebraic](capacity=_sum(count, len(fixed)))
@@ -125,7 +129,7 @@ def _fiber(embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[In
             values.append(_copy_witness(root.witness(), budget))
     for entry in fixed:
         values.append(_copy_witness(entry[1].witness(), budget))
-    return CADFiber(values, budget)
+    return values^
 
 
 def _check_axes(variables: List[Int64], embedding: Optional[ArcPointer[_aa._Embedding]], fixed: List[Tuple[Int, Real]], width: Int, mut budget: Budget) raises PolyError -> Bool:

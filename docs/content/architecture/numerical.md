@@ -55,7 +55,8 @@ bounds without meeting the requested target.
 
 ## Root covers
 
-For exact real point data, Sturm information supplies distinct-root counts.
+For exact ZZ/QQ inputs, a Descartes certificate on the squarefree part supplies
+distinct-root counts; numerical point data uses Sturm information.
 Real ball families use uniform exclusion, sign, derivative, and interval-Newton
 evidence. A global bound and ordered cells establish coverage, including
 regions certified to contain no root.

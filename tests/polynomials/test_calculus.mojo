@@ -32,6 +32,24 @@ def main() raises:
     var assignments: List[Tuple[Int64, SparsePoly[QQ]]] = [(Int64(0), y.copy()), (Int64(1), x.copy())]
     c.check(substitute_many(p, assignments, work) == y.pow(2, work).add(x.scale(QQ(Rational(3)), work), work), "simultaneous variable swap")
     c.check(derivative(integrate_sparse(p, 1, work), 1, work) == p, "sparse integration")
+    # The storage order compares pair lists and is not multiplicative:
+    # differentiating can drop a variable and reorder the terms.
+    var kernel = MonomialOrder()
+    var k0 = SparsePoly[ZZ].variable(0, kernel, NoContext(), work)
+    var k1 = SparsePoly[ZZ].variable(1, kernel, NoContext(), work)
+    var k2 = SparsePoly[ZZ].variable(2, kernel, NoContext(), work)
+    var k3 = SparsePoly[ZZ].variable(3, kernel, NoContext(), work)
+    var five = SparsePoly[ZZ].constant(ZZ(Integer(5)), kernel, work)
+    var two = SparsePoly[ZZ].constant(ZZ(Integer(2)), kernel, work)
+    var kp = five.mul(k0, work).mul(k1, work).mul(k2, work).mul(k3.pow(2, work), work).add(k0.mul(k1.pow(2, work), work).mul(k2.pow(2, work), work), work).add(k0.pow(2, work).mul(k1.pow(2, work), work).mul(k3.pow(2, work), work), work)
+    var kd = derivative(kp, 0, work)
+    var kexpected = five.mul(k1, work).mul(k2, work).mul(k3.pow(2, work), work).add(k1.pow(2, work).mul(k2.pow(2, work), work), work).add(two.mul(k0, work).mul(k1.pow(2, work), work).mul(k3.pow(2, work), work), work)
+    var canonical = True
+    try:
+        kd.check_invariants(work)
+    except:
+        canonical = False
+    c.check(canonical and kd == kexpected, "derivative in the storage order stays canonical")
     var prime = Modulus(3, work)
     var modular = DensePoly[ModInt].from_coefficients(0, prime, [ModInt(0, prime), ModInt(0, prime), ModInt(1, prime)], work)
     try:

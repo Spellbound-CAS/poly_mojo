@@ -16,14 +16,32 @@ from ._common import _CoreKind, _allocation, _grow, _charge_size
 from ._archive_meta import _Archive
 from ._io_meta import _Record
 from ._algebraic_io import _Reader, _Writer, _bad
-from . import exact, roots, cad, _cad_algebraic, _complex_roots, _algebraic_numeric, _rational_field, _rational_certificates, _determinant, algebraic
+from . import exact, roots, cad, _cad_algebraic, _cad_fixed, _complex_roots, _algebraic_numeric, _rational_field, _rational_certificates, _determinant, algebraic
 
 
 def _tag[T: Copyable & Deinitable](mut budget: Budget) raises PolyError -> String:
     comptime V = downcast[T, _Archive]
     var name = String("CHECKED-1:", reflect[T].name(), ":axes=", V._archive_shape())
+    if name.find("cad.Solution[") >= 0:
+        # Revision 10: conjunction solutions carry coverings evidence.
+        name = String("CHECKED-2:", reflect[T].name(), ":axes=", V._archive_shape())
+    if name.find("roots.RootCount:") >= 0:
+        # Revision 11: root counts carry Descartes evidence; Sturm-era archives are rejected.
+        name = String("CHECKED-2:", reflect[T].name(), ":axes=", V._archive_shape())
+    if name.find("cad.Decomposition[") >= 0 or name.find("cad.Covering[") >= 0:
+        # Revision 16: final-data CAD evidence; legacy CHECKED-1 remains readable.
+        name = String("CHECKED-3:", reflect[T].name(), ":axes=", V._archive_shape())
     _charge_size(name.byte_length(), budget)
     return name^
+
+
+def _legacy_cad_tag[T: _Archive](tag: String, mut budget: Budget) raises PolyError -> Bool:
+    var name = String(reflect[T].name())
+    if name.find("cad.Decomposition[") < 0 and name.find("cad.Covering[") < 0:
+        return False
+    var expected = String("CHECKED-1:", name, ":axes=", T._archive_shape())
+    _charge_size(expected.byte_length(), budget)
+    return tag == expected
 
 
 def _write[T: _Archive, S: PolynomialTextSink](value: T, mut writer: _Writer, mut sink: S, mut budget: Budget) raises PolyError:
@@ -45,6 +63,91 @@ def _depth(depth: Int, mut budget: Budget) raises PolyError:
         raise _bad("certificate nesting exceeds 256 levels")
 
 
+@fieldwise_init
+struct _PendingFinalCAD(Movable):
+    var kind: Int
+    var variables: List[Int64]
+    var bytes: List[UInt8]
+    var legacy: Optional[core.CADCertificate]
+    var covering: Optional[core.CADCoveringCertificate]
+
+
+def _write_final_cad[C: CoefficientRing, D: NumericDomain, E: Copyable & Deinitable, S: PolynomialTextSink](proof: core.CADFinalCertificate, mut writer: _Writer, mut sink: S, mut budget: Budget, depth: Int) raises PolyError:
+    if proof.is_compact():
+        writer.line("0", sink, budget)
+        var variables = proof.variables(budget)
+        writer.line(String(len(variables)), sink, budget)
+        for axis in variables:
+            writer.line(String(axis), sink, budget)
+        var bytes = proof.compact_bytes(budget)
+        writer.line(String(len(bytes)), sink, budget)
+        var hex = String("0123456789abcdef")
+        for start in range(0, len(bytes), 2048):
+            var text = String()
+            for k in range(start, min(start + 2048, len(bytes))):
+                _charge_size(2, budget)
+                var high = Int(bytes[k] >> 4)
+                var low = Int(bytes[k] & 15)
+                text.write(hex[byte=high:high + 1], hex[byte=low:low + 1])
+            writer.line(text, sink, budget)
+    elif proof.legacy_decomposition():
+        writer.line("1", sink, budget)
+        _write_node[core.CADCertificate, C, D, E](proof.legacy_decomposition().value(), writer, sink, budget, depth + 1)
+    elif proof.legacy_covering():
+        writer.line("2", sink, budget)
+        _write_node[core.CADCoveringCertificate, C, D, E](proof.legacy_covering().value(), writer, sink, budget, depth + 1)
+    else:
+        raise _bad("missing final CAD payload")
+
+
+def _hex_final(byte: UInt8) raises PolyError -> UInt8:
+    if byte >= 48 and byte <= 57:
+        return byte - 48
+    if byte >= 97 and byte <= 102:
+        return byte - 87
+    raise _bad("noncanonical compact CAD hexadecimal digit")
+
+
+def _read_final_cad[C: CoefficientRing, D: NumericDomain, E: Copyable & Deinitable, S: PolynomialTextSource](mut reader: _Reader[S], query: Bool, mut budget: Budget, depth: Int) raises PolyError -> _PendingFinalCAD:
+    var kind = (2 if query else 1) if reader.legacy_cad_archive else Int(reader.number(2, budget))
+    var pending = _PendingFinalCAD(kind, List[Int64](), List[UInt8](), None, None)
+    if kind == 0:
+        var count = reader.count(budget)
+        for _ in range(count):
+            var axis = reader.identifier(budget)
+            _grow(pending.variables, budget)
+            pending.variables.append(axis)
+        var length = reader.count(budget)
+        while len(pending.bytes) < length:
+            var text = reader.line(budget)
+            var count = min(2048, length - len(pending.bytes))
+            if text.byte_length() != 2 * count:
+                raise _bad("incorrect compact CAD hexadecimal chunk length")
+            var digits = text.as_bytes()
+            for k in range(count):
+                var byte = (_hex_final(digits[2 * k]) << 4) | _hex_final(digits[2 * k + 1])
+                _grow(pending.bytes, budget)
+                pending.bytes.append(byte)
+    elif kind == 1 and not query:
+        pending.legacy = _read_node[core.CADCertificate, C, D, E](reader, budget, depth + 1)
+    elif kind == 2 and query:
+        pending.covering = _read_node[core.CADCoveringCertificate, C, D, E](reader, budget, depth + 1)
+    else:
+        raise _bad("CAD payload does not match the requested claim")
+    return pending^
+
+
+def _accept_final_cad(var pending: _PendingFinalCAD, inputs: List[core.SparsePoly[core.QQ]], masks: List[UInt8], query: Bool, embedding: Optional[ArcPointer[_cad_algebraic._Embedding]], fixed: List[Tuple[Int, algebraic.Real]], mut budget: Budget) raises PolyError -> core.CADFinalCertificate:
+    var prefix = _cad_fixed._prefix(embedding, fixed, budget)
+    if pending.kind == 0:
+        if len(prefix):
+            raise _bad("compact full-space CAD cannot claim a fixed prefix")
+        return core.CADFinalCertificate.from_compact_bytes(Span(pending.bytes), inputs, pending.variables, masks, query, budget)
+    if pending.kind == 1:
+        return core.CADFinalCertificate.from_legacy(pending.legacy.take(), inputs, prefix, budget)
+    return core.CADFinalCertificate.from_legacy_covering(pending.covering.take(), inputs, masks, prefix, budget)
+
+
 def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E: Copyable & Deinitable, S: PolynomialTextSink](value: T, mut writer: _Writer, mut sink: S, mut budget: Budget, depth: Int) raises PolyError:
     _depth(depth, budget)
     comptime F = downcast[C, CoefficientField] if conforms_to(C, CoefficientField) else core.QQ
@@ -58,6 +161,8 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         _write_node[T, C, core.ComplexBallDomain, E](value, writer, sink, budget, depth + 1)
     elif (T == core.DensePoly[core.QQ] or T == core.SparsePoly[core.QQ]) and C != core.QQ:
         _write_node[T, core.QQ, D, E](value, writer, sink, budget, depth + 1)
+    elif (T == core.DensePoly[core.ZZ] or T == core.SparsePoly[core.ZZ]) and C != core.ZZ:
+        _write_node[T, core.ZZ, D, E](value, writer, sink, budget, depth + 1)
     elif (T == core.DensePoly[core.QQi] or T == core.SparsePoly[core.QQi]) and C != core.QQi:
         _write_node[T, core.QQi, D, E](value, writer, sink, budget, depth + 1)
     elif (T == core.DensePoly[_algebraic_value.Real] or T == core.SparsePoly[_algebraic_value.Real]) and C != _algebraic_value.Real:
@@ -237,6 +342,12 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.quotients)), sink, budget)
         for field115 in v.quotients:
             _write_node[core.DensePoly[core.QQ], C, D, E](field115, writer, sink, budget, depth + 1)
+    elif T == core.DescartesCountCertificate:
+        ref v = rebind[core.DescartesCountCertificate](value)
+        _write_node[core.AlgebraicDescartesCertificate, C, D, E](v.isolation, writer, sink, budget, depth + 1)
+        _write_node[core.QQ, C, D, E](v.a, writer, sink, budget, depth + 1)
+        _write_node[core.QQ, C, D, E](v.b, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.count, writer, sink, budget, depth + 1)
     elif T == core.RootCountCertificate:
         ref v = rebind[core.RootCountCertificate](value)
         _write_node[core.SturmSequence, C, D, E](v.sequence, writer, sink, budget, depth + 1)
@@ -263,7 +374,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
             _write_node[core.ResultantResult[core.QQ], C, D, E](v.elimination.value(), writer, sink, budget, depth + 1)
         writer.line(String(Int(Bool(v.selection))), sink, budget)
         if v.selection:
-            _write_node[core.RootCountCertificate, C, D, E](v.selection.value(), writer, sink, budget, depth + 1)
+            _write_node[core.RootInterval, C, D, E](v.selection.value(), writer, sink, budget, depth + 1)
     elif T == core.AlgebraicEvaluationCertificate:
         ref v = rebind[core.AlgebraicEvaluationCertificate](value)
         writer.line(String(len(v.products)), sink, budget)
@@ -291,7 +402,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.candidate_factors)), sink, budget)
         for field175 in v.candidate_factors:
             _write_node[core.DensePoly[core.QQ], C, D, E](field175, writer, sink, budget, depth + 1)
-        _write_node[core.RootCountCertificate, C, D, E](v.all_roots, writer, sink, budget, depth + 1)
+        _write_node[core.AlgebraicDescartesCertificate, C, D, E](v.all_roots, writer, sink, budget, depth + 1)
         writer.line(String(len(v.evaluations)), sink, budget)
         for field176 in v.evaluations:
             _write_node[core.AlgebraicEvaluationCertificate, C, D, E](field176, writer, sink, budget, depth + 1)
@@ -301,12 +412,36 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.roots)), sink, budget)
         for field178 in v.roots:
             _write_node[core.RealAlgebraic, C, D, E](field178, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.filters)), sink, budget)
+        for field179 in v.filters:
+            _write_node[core.AlgebraicRootFilter, C, D, E](field179, writer, sink, budget, depth + 1)
+        _write_node[core.RealAlgebraic, C, D, E](v.element, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.representations)), sink, budget)
+        for field944 in v.representations:
+            _write_node[core.DensePoly[core.QQ], C, D, E](field944, writer, sink, budget, depth + 1)
+    elif T == core.AlgebraicRootFilter:
+        ref v = rebind[core.AlgebraicRootFilter](value)
+        _write_node[Int, C, D, E](v.kind, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.coefficients)), sink, budget)
+        for field901 in v.coefficients:
+            _write_node[core.RealAlgebraic, C, D, E](field901, writer, sink, budget, depth + 1)
+        _write_node[core.RealAlgebraic, C, D, E](v.candidate, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.representations)), sink, budget)
+        for field902 in v.representations:
+            _write_node[core.DensePoly[core.QQ], C, D, E](field902, writer, sink, budget, depth + 1)
+        _write_node[core.RealAlgebraic, C, D, E](v.element, writer, sink, budget, depth + 1)
     elif T == core.AlgebraicPolynomialEvaluation:
         ref v = rebind[core.AlgebraicPolynomialEvaluation](value)
         writer.line(String(len(v.steps)), sink, budget)
         for field183 in v.steps:
             _write_node[core.AlgebraicArithmeticCertificate, C, D, E](field183, writer, sink, budget, depth + 1)
         _write_node[core.RealAlgebraic, C, D, E](v.value, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.witness)), sink, budget)
+        for field940 in v.witness:
+            _write_node[core.RealAlgebraic, C, D, E](field940, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.representations)), sink, budget)
+        for field950 in v.representations:
+            _write_node[core.DensePoly[core.QQ], C, D, E](field950, writer, sink, budget, depth + 1)
     elif T == core.AlgebraicSpecializationCertificate:
         ref v = rebind[core.AlgebraicSpecializationCertificate](value)
         writer.line(String(len(v.monomials)), sink, budget)
@@ -329,7 +464,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         _write_node[core.DensePoly[core.QQ], C, D, E](v.right_cofactor, writer, sink, budget, depth + 1)
         writer.line(String(Int(Bool(v.shared))), sink, budget)
         if v.shared:
-            _write_node[core.RootCountCertificate, C, D, E](v.shared.value(), writer, sink, budget, depth + 1)
+            _write_node[core.RootInterval, C, D, E](v.shared.value(), writer, sink, budget, depth + 1)
     elif T == core.CADPolynomialLift:
         ref v = rebind[core.CADPolynomialLift](value)
         writer.line(String(Int(Bool(v.ordinary))), sink, budget)
@@ -384,6 +519,19 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.signs)), sink, budget)
         for field258 in v.signs:
             _write_node[core.AlgebraicComparisonCertificate, C, D, E](field258, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.witnesses)), sink, budget)
+        for field920 in v.witnesses:
+            _write_node[core.CADSignWitness, C, D, E](field920, writer, sink, budget, depth + 1)
+    elif T == core.CADSignWitness:
+        ref v = rebind[core.CADSignWitness](value)
+        _write_node[Int, C, D, E](v.kind, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.point)), sink, budget)
+        for field921 in v.point:
+            _write_node[core.RealAlgebraic, C, D, E](field921, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.primitive, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.representations)), sink, budget)
+        for field922 in v.representations:
+            _write_node[core.DensePoly[core.QQ], C, D, E](field922, writer, sink, budget, depth + 1)
     elif T == core.CADCertificate:
         ref v = rebind[core.CADCertificate](value)
         _write_node[core.CADProjectionCertificate, C, D, E](v.projection, writer, sink, budget, depth + 1)
@@ -463,6 +611,60 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         if v.root_conflict:
             _write_node[core.CADConflict, C, D, E](v.root_conflict.value(), writer, sink, budget, depth + 1)
         _write_node[Int, C, D, E](v.witness_cell, writer, sink, budget, depth + 1)
+    elif T == core.CoveringBound:
+        ref v = rebind[core.CoveringBound](value)
+        _write_node[Int, C, D, E](v.polynomial, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.root, writer, sink, budget, depth + 1)
+    elif T == core.CoveringInterval:
+        ref v = rebind[core.CoveringInterval](value)
+        writer.line(String(Int(Bool(v.lower)) + 2 * Int(Bool(v.upper))), sink, budget)
+        if v.lower:
+            _write_node[core.CoveringBound, C, D, E](v.lower.value(), writer, sink, budget, depth + 1)
+        if v.upper:
+            _write_node[core.CoveringBound, C, D, E](v.upper.value(), writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.lower_closed, writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.upper_closed, writer, sink, budget, depth + 1)
+        _write_node[core.RealAlgebraic, C, D, E](v.sample, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.constraint, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.child, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.polynomials)), sink, budget)
+        for index in v.polynomials:
+            _write_node[Int, C, D, E](index, writer, sink, budget, depth + 1)
+    elif T == core.CoveringNode:
+        ref v = rebind[core.CoveringNode](value)
+        _write_node[Int, C, D, E](v.parent, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.interval, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.level, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.intervals)), sink, budget)
+        for item in v.intervals:
+            _write_node[core.CoveringInterval, C, D, E](item, writer, sink, budget, depth + 1)
+    elif T == core.CADCoveringsCertificate:
+        ref v = rebind[core.CADCoveringsCertificate](value)
+        writer.line(String(len(v.variables)), sink, budget)
+        for variable in v.variables:
+            _write_node[Int64, C, D, E](variable, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.polynomials)), sink, budget)
+        for f in v.polynomials:
+            _write_node[core.SparsePoly[core.QQ], C, D, E](f, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.input_factors)), sink, budget)
+        for proof in v.input_factors:
+            _write_node[core.MultivariateFactorization[core.QQ], C, D, E](proof, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.projections)), sink, budget)
+        for proof in v.projections:
+            _write_node[core.MultivariateFactorization[core.QQ], C, D, E](proof, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.nodes)), sink, budget)
+        for node in v.nodes:
+            _write_node[core.CoveringNode, C, D, E](node, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.root_conflict, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.witness)), sink, budget)
+        for coordinate in v.witness:
+            _write_node[core.RealAlgebraic, C, D, E](coordinate, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.evaluations)), sink, budget)
+        for evaluation in v.evaluations:
+            _write_node[core.AlgebraicPolynomialEvaluation, C, D, E](evaluation, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.signs)), sink, budget)
+        for sign in v.signs:
+            _write_node[core.AlgebraicComparisonCertificate, C, D, E](sign, writer, sink, budget, depth + 1)
     elif T == core.LazardEvaluationCertificate:
         ref v = rebind[core.LazardEvaluationCertificate](value)
         writer.line(String(len(v.orders)), sink, budget)
@@ -512,6 +714,45 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(Int(Bool(v.sequence))), sink, budget)
         if v.sequence:
             _write_node[core.SturmSequence, C, D, E](v.sequence.value(), writer, sink, budget, depth + 1)
+    elif T == core.RootInterval:
+        ref v = rebind[core.RootInterval](value)
+        _write_node[core.QQ, C, D, E](v.low, writer, sink, budget, depth + 1)
+        _write_node[core.QQ, C, D, E](v.high, writer, sink, budget, depth + 1)
+    elif T == core.DescartesLeaf:
+        ref v = rebind[core.DescartesLeaf](value)
+        _write_node[core.QQ, C, D, E](v.low, writer, sink, budget, depth + 1)
+        _write_node[core.QQ, C, D, E](v.high, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.variations, writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.resolved, writer, sink, budget, depth + 1)
+    elif T == core.DescartesCertificate:
+        ref v = rebind[core.DescartesCertificate](value)
+        _write_node[core.QQ, C, D, E](v.low, writer, sink, budget, depth + 1)
+        _write_node[core.QQ, C, D, E](v.high, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.leaves)), sink, budget)
+        for leaf in v.leaves:
+            _write_node[core.DescartesLeaf, C, D, E](leaf, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.exact_roots)), sink, budget)
+        for root in v.exact_roots:
+            _write_node[core.QQ, C, D, E](root, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.brackets)), sink, budget)
+        for bracket in v.brackets:
+            _write_node[core.RootInterval, C, D, E](bracket, writer, sink, budget, depth + 1)
+    elif T == core.DescartesRootResult:
+        ref v = rebind[core.DescartesRootResult](value)
+        _write_node[core.NumericOutcome, C, D, E](v.outcome, writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.complete, writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.accurate, writer, sink, budget, depth + 1)
+        _write_node[Bool, C, D, E](v.isolated, writer, sink, budget, depth + 1)
+        _write_node[core.DensePoly[core.ZZ], C, D, E](v.squarefree, writer, sink, budget, depth + 1)
+        _write_node[core.DensePoly[core.ZZ], C, D, E](v.cofactor, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.bound_exponent, writer, sink, budget, depth + 1)
+        _write_node[core.DescartesCertificate, C, D, E](v.certificate, writer, sink, budget, depth + 1)
+    elif T == core.AlgebraicDescartesCertificate:
+        ref v = rebind[core.AlgebraicDescartesCertificate](value)
+        _write_node[core.DensePoly[core.ZZ], C, D, E](v.squarefree, writer, sink, budget, depth + 1)
+        _write_node[core.DensePoly[core.ZZ], C, D, E](v.cofactor, writer, sink, budget, depth + 1)
+        _write_node[Int, C, D, E](v.bound_exponent, writer, sink, budget, depth + 1)
+        _write_node[core.DescartesCertificate, C, D, E](v.certificate, writer, sink, budget, depth + 1)
     elif T == core.ComplexBoundarySegment:
         ref v = rebind[core.ComplexBoundarySegment](value)
         _write_node[core.NumericBox, C, D, E](v.start, writer, sink, budget, depth + 1)
@@ -536,13 +777,9 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
     elif T == core.RootMultiplicityCertificate:
         ref v = rebind[core.RootMultiplicityCertificate](value)
         _write_node[core.SquarefreeDecomposition[core.QQ], C, D, E](v.decomposition, writer, sink, budget, depth + 1)
-        writer.line(String(len(v.squarefree_witnesses)), sink, budget)
-        for field411 in v.squarefree_witnesses:
-            _write_node[core.DensePoly[core.QQ], C, D, E](field411[0], writer, sink, budget, depth + 1)
-            _write_node[core.DensePoly[core.QQ], C, D, E](field411[1], writer, sink, budget, depth + 1)
-        writer.line(String(len(v.sequences)), sink, budget)
-        for field412 in v.sequences:
-            _write_node[core.SturmSequence, C, D, E](field412, writer, sink, budget, depth + 1)
+        writer.line(String(len(v.blocks)), sink, budget)
+        for block in v.blocks:
+            _write_node[Int, C, D, E](block, writer, sink, budget, depth + 1)
         writer.line(String(len(v.multiplicities)), sink, budget)
         for field413 in v.multiplicities:
             _write_node[Int, C, D, E](field413, writer, sink, budget, depth + 1)
@@ -634,12 +871,12 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
     elif T == roots._CountData:
         ref v = rebind[roots._CountData](value)
         _write_node[core.DensePoly[core.QQ], C, D, E](v.polynomial, writer, sink, budget, depth + 1)
-        _write_node[core.RootCountCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
+        _write_node[core.DescartesCountCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
     elif T == roots._RealCoverData[_CoreKind[C]]:
         ref v = rebind[roots._RealCoverData[_CoreKind[C]]](value)
         _write_node[core.DensePoly[_common._Ring[_CoreKind[C]]], C, D, E](v.polynomial, writer, sink, budget, depth + 1)
         _write_node[core.NumericOptions, C, D, E](v.options, writer, sink, budget, depth + 1)
-        _write_node[core.RealRootResult, C, D, E](v.proof, writer, sink, budget, depth + 1)
+        _write_node[core.DescartesRootResult, C, D, E](v.proof, writer, sink, budget, depth + 1)
     elif T == roots._ComplexCoverData[_CoreKind[C]]:
         ref v = rebind[roots._ComplexCoverData[_CoreKind[C]]](value)
         _write_node[core.DensePoly[_common._Ring[_CoreKind[C]]], C, D, E](v.polynomial, writer, sink, budget, depth + 1)
@@ -650,7 +887,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.inputs)), sink, budget)
         for field506 in v.inputs:
             _write_node[core.SparsePoly[core.QQ], C, D, E](field506, writer, sink, budget, depth + 1)
-        _write_node[core.CADCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
+        _write_final_cad[C, D, E](v.proof, writer, sink, budget, depth + 1)
         # Scope bits: embedding=1, user bindings=2; preserve legacy 0/1 records.
         writer.line(String(Int(Bool(v.embedding)) + 2 * Int(len(v.fixed) != 0)), sink, budget)
         if v.embedding:
@@ -668,7 +905,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.masks)), sink, budget)
         for field518 in v.masks:
             _write_node[UInt8, C, D, E](field518, writer, sink, budget, depth + 1)
-        _write_node[core.CylindricalCoveringCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
+        _write_node[core.CADCoveringsCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
         writer.line(String(Int(Bool(v.embedding)) + 2 * Int(len(v.fixed) != 0)), sink, budget)
         if v.embedding:
             _write_node[_cad_algebraic._Embedding, C, D, E](v.embedding.value()[], writer, sink, budget, depth + 1)
@@ -724,7 +961,7 @@ def _write_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, 
         writer.line(String(len(v.masks)), sink, budget)
         for field570 in v.masks:
             _write_node[UInt8, C, D, E](field570, writer, sink, budget, depth + 1)
-        _write_node[core.CADCoveringCertificate, C, D, E](v.proof, writer, sink, budget, depth + 1)
+        _write_final_cad[C, D, E](v.proof, writer, sink, budget, depth + 1)
         writer.line(String(Int(Bool(v.embedding)) + 2 * Int(len(v.fixed) != 0)), sink, budget)
         if v.embedding:
             _write_node[_cad_algebraic._Embedding, C, D, E](v.embedding.value()[], writer, sink, budget, depth + 1)
@@ -861,6 +1098,8 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
         return _read_node[T, C, core.ComplexBallDomain, E](reader, budget, depth + 1)
     elif (T == core.DensePoly[core.QQ] or T == core.SparsePoly[core.QQ]) and C != core.QQ:
         return _read_node[T, core.QQ, D, E](reader, budget, depth + 1)
+    elif (T == core.DensePoly[core.ZZ] or T == core.SparsePoly[core.ZZ]) and C != core.ZZ:
+        return _read_node[T, core.ZZ, D, E](reader, budget, depth + 1)
     elif (T == core.DensePoly[core.QQi] or T == core.SparsePoly[core.QQi]) and C != core.QQi:
         return _read_node[T, core.QQi, D, E](reader, budget, depth + 1)
     elif (T == core.DensePoly[_algebraic_value.Real] or T == core.SparsePoly[_algebraic_value.Real]) and C != _algebraic_value.Real:
@@ -1125,6 +1364,12 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             _grow(field111, budget)
             field111.append(field113^)
         return rebind_var[T](core.SturmSequence(field108^, field111^))
+    elif T == core.DescartesCountCertificate:
+        var isolation = _read_node[core.AlgebraicDescartesCertificate, C, D, E](reader, budget, depth + 1)
+        var low = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var high = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var count = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.DescartesCountCertificate(isolation^, low^, high^, count))
     elif T == core.RootCountCertificate:
         var field116 = _read_node[core.SturmSequence, C, D, E](reader, budget, depth + 1)
         var field117 = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
@@ -1150,9 +1395,9 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
         if reader.number(1, budget):
             var field133 = _read_node[core.ResultantResult[core.QQ], C, D, E](reader, budget, depth + 1)
             field132 = field133^
-        var field134 = Optional[core.RootCountCertificate]()
+        var field134 = Optional[core.RootInterval]()
         if reader.number(1, budget):
-            var field135 = _read_node[core.RootCountCertificate, C, D, E](reader, budget, depth + 1)
+            var field135 = _read_node[core.RootInterval, C, D, E](reader, budget, depth + 1)
             field134 = field135^
         return rebind_var[T](core.AlgebraicArithmeticCertificate(field124, field125^, field126^, field127^, field128^, field129^, field130^, field131^, field132^, field134^))
     elif T == core.AlgebraicEvaluationCertificate:
@@ -1202,7 +1447,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field160 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
             _grow(field158, budget)
             field158.append(field160^)
-        var field161 = _read_node[core.RootCountCertificate, C, D, E](reader, budget, depth + 1)
+        var field161 = _read_node[core.AlgebraicDescartesCertificate, C, D, E](reader, budget, depth + 1)
         var field163 = reader.count(budget)
         var field162 = List[core.AlgebraicEvaluationCertificate]()
         for _ in range(field163):
@@ -1221,7 +1466,37 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field170 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
             _grow(field168, budget)
             field168.append(field170^)
-        return rebind_var[T](core.AlgebraicRootsCertificate(field145^, field148^, field151^, field154^, field155^, field158^, field161^, field162^, field165^, field168^))
+        var field904 = reader.count(budget)
+        var field903 = List[core.AlgebraicRootFilter]()
+        for _ in range(field904):
+            var field905 = _read_node[core.AlgebraicRootFilter, C, D, E](reader, budget, depth + 1)
+            _grow(field903, budget)
+            field903.append(field905^)
+        var field945 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+        var field947 = reader.count(budget)
+        var field946 = List[core.DensePoly[core.QQ]]()
+        for _ in range(field947):
+            var field948 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(field946, budget)
+            field946.append(field948^)
+        return rebind_var[T](core.AlgebraicRootsCertificate(field145^, field148^, field151^, field154^, field155^, field158^, field161^, field162^, field165^, field168^, field903^, field945^, field946^))
+    elif T == core.AlgebraicRootFilter:
+        var field906 = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var field908 = reader.count(budget)
+        var field907 = List[core.RealAlgebraic]()
+        for _ in range(field908):
+            var field909 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+            _grow(field907, budget)
+            field907.append(field909^)
+        var field910 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+        var field912 = reader.count(budget)
+        var field911 = List[core.DensePoly[core.QQ]]()
+        for _ in range(field912):
+            var field913 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(field911, budget)
+            field911.append(field913^)
+        var field914 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.AlgebraicRootFilter(field906, field907^, field910^, field911^, field914^))
     elif T == core.AlgebraicPolynomialEvaluation:
         var field180 = reader.count(budget)
         var field179 = List[core.AlgebraicArithmeticCertificate]()
@@ -1230,7 +1505,19 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             _grow(field179, budget)
             field179.append(field181^)
         var field182 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
-        return rebind_var[T](core.AlgebraicPolynomialEvaluation(field179^, field182^))
+        var field942 = reader.count(budget)
+        var field941 = List[core.RealAlgebraic]()
+        for _ in range(field942):
+            var field943 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+            _grow(field941, budget)
+            field941.append(field943^)
+        var field952 = reader.count(budget)
+        var field951 = List[core.DensePoly[core.QQ]]()
+        for _ in range(field952):
+            var field953 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(field951, budget)
+            field951.append(field953^)
+        return rebind_var[T](core.AlgebraicPolynomialEvaluation(field179^, field182^, field941^, field951^))
     elif T == core.AlgebraicSpecializationCertificate:
         var field185 = reader.count(budget)
         var field184 = List[core.Monomial]()
@@ -1256,9 +1543,9 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
         var field197 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
         var field198 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
         var field199 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
-        var field200 = Optional[core.RootCountCertificate]()
+        var field200 = Optional[core.RootInterval]()
         if reader.number(1, budget):
-            var field201 = _read_node[core.RootCountCertificate, C, D, E](reader, budget, depth + 1)
+            var field201 = _read_node[core.RootInterval, C, D, E](reader, budget, depth + 1)
             field200 = field201^
         return rebind_var[T](core.AlgebraicComparisonCertificate(field194, field195^, field196^, field197^, field198^, field199^, field200^))
     elif T == core.CADPolynomialLift:
@@ -1351,7 +1638,29 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field256 = _read_node[core.AlgebraicComparisonCertificate, C, D, E](reader, budget, depth + 1)
             _grow(field254, budget)
             field254.append(field256^)
-        return rebind_var[T](core.CADCell(field247, field248, field249, field250^, field251^, field254^))
+        var field924 = reader.count(budget)
+        var field923 = List[core.CADSignWitness]()
+        for _ in range(field924):
+            var field925 = _read_node[core.CADSignWitness, C, D, E](reader, budget, depth + 1)
+            _grow(field923, budget)
+            field923.append(field925^)
+        return rebind_var[T](core.CADCell(field247, field248, field249, field250^, field251^, field254^, field923^))
+    elif T == core.CADSignWitness:
+        var field926 = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var field928 = reader.count(budget)
+        var field927 = List[core.RealAlgebraic]()
+        for _ in range(field928):
+            var field929 = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+            _grow(field927, budget)
+            field927.append(field929^)
+        var field930 = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var field932 = reader.count(budget)
+        var field931 = List[core.DensePoly[core.QQ]]()
+        for _ in range(field932):
+            var field933 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(field931, budget)
+            field931.append(field933^)
+        return rebind_var[T](core.CADSignWitness(field926, field927^, field930, field931^))
     elif T == core.CADCertificate:
         var field259 = _read_node[core.CADProjectionCertificate, C, D, E](reader, budget, depth + 1)
         var field261 = reader.count(budget)
@@ -1480,6 +1789,92 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             field333 = field334^
         var field335 = _read_node[Int, C, D, E](reader, budget, depth + 1)
         return rebind_var[T](core.CylindricalCoveringCertificate(field323^, field324^, field327^, field330^, field333^, field335))
+    elif T == core.CoveringBound:
+        var polynomial = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var root = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.CoveringBound(polynomial, root))
+    elif T == core.CoveringInterval:
+        var ends = reader.number(3, budget)
+        var lower = Optional[core.CoveringBound]()
+        var upper = Optional[core.CoveringBound]()
+        if ends & 1:
+            lower = _read_node[core.CoveringBound, C, D, E](reader, budget, depth + 1)
+        if ends & 2:
+            upper = _read_node[core.CoveringBound, C, D, E](reader, budget, depth + 1)
+        var lower_closed = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        var upper_closed = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        var sample = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+        var constraint = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var child = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var count = reader.count(budget)
+        var polynomials = List[Int]()
+        for _ in range(count):
+            var index = _read_node[Int, C, D, E](reader, budget, depth + 1)
+            _grow(polynomials, budget)
+            polynomials.append(index)
+        return rebind_var[T](core.CoveringInterval(lower^, upper^, lower_closed, upper_closed, sample^, constraint, child, polynomials^))
+    elif T == core.CoveringNode:
+        var parent = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var interval = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var level = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var count = reader.count(budget)
+        var intervals = List[core.CoveringInterval]()
+        for _ in range(count):
+            var item = _read_node[core.CoveringInterval, C, D, E](reader, budget, depth + 1)
+            _grow(intervals, budget)
+            intervals.append(item^)
+        return rebind_var[T](core.CoveringNode(parent, interval, level, intervals^))
+    elif T == core.CADCoveringsCertificate:
+        var count = reader.count(budget)
+        var variables = List[Int64]()
+        for _ in range(count):
+            var variable = _read_node[Int64, C, D, E](reader, budget, depth + 1)
+            _grow(variables, budget)
+            variables.append(variable)
+        count = reader.count(budget)
+        var polynomials = List[core.SparsePoly[core.QQ]]()
+        for _ in range(count):
+            var f = _read_node[core.SparsePoly[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(polynomials, budget)
+            polynomials.append(f^)
+        count = reader.count(budget)
+        var input_factors = List[core.MultivariateFactorization[core.QQ]]()
+        for _ in range(count):
+            var proof = _read_node[core.MultivariateFactorization[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(input_factors, budget)
+            input_factors.append(proof^)
+        count = reader.count(budget)
+        var projections = List[core.MultivariateFactorization[core.QQ]]()
+        for _ in range(count):
+            var proof = _read_node[core.MultivariateFactorization[core.QQ], C, D, E](reader, budget, depth + 1)
+            _grow(projections, budget)
+            projections.append(proof^)
+        count = reader.count(budget)
+        var nodes = List[core.CoveringNode]()
+        for _ in range(count):
+            var node = _read_node[core.CoveringNode, C, D, E](reader, budget, depth + 1)
+            _grow(nodes, budget)
+            nodes.append(node^)
+        var root_conflict = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        count = reader.count(budget)
+        var witness = List[core.RealAlgebraic]()
+        for _ in range(count):
+            var coordinate = _read_node[core.RealAlgebraic, C, D, E](reader, budget, depth + 1)
+            _grow(witness, budget)
+            witness.append(coordinate^)
+        count = reader.count(budget)
+        var evaluations = List[core.AlgebraicPolynomialEvaluation]()
+        for _ in range(count):
+            var evaluation = _read_node[core.AlgebraicPolynomialEvaluation, C, D, E](reader, budget, depth + 1)
+            _grow(evaluations, budget)
+            evaluations.append(evaluation^)
+        count = reader.count(budget)
+        var signs = List[core.AlgebraicComparisonCertificate]()
+        for _ in range(count):
+            var sign = _read_node[core.AlgebraicComparisonCertificate, C, D, E](reader, budget, depth + 1)
+            _grow(signs, budget)
+            signs.append(sign^)
+        return rebind_var[T](core.CADCoveringsCertificate(variables^, polynomials^, input_factors^, projections^, nodes^, root_conflict, witness^, evaluations^, signs^))
     elif T == core.LazardEvaluationCertificate:
         var field340 = reader.count(budget)
         var field339 = List[Int]()
@@ -1551,6 +1946,54 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field380 = _read_node[core.SturmSequence, C, D, E](reader, budget, depth + 1)
             field379 = field380^
         return rebind_var[T](core.RealRootResult(field372^, field373, field374, field375, field376^, field379^))
+    elif T == core.RootInterval:
+        var low = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var high = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.RootInterval(low^, high^))
+    elif T == core.DescartesLeaf:
+        var low = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var high = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var variations = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var resolved = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.DescartesLeaf(low^, high^, variations, resolved))
+    elif T == core.DescartesCertificate:
+        var low = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var high = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+        var leaf_count = reader.count(budget)
+        var leaves = List[core.DescartesLeaf]()
+        for _ in range(leaf_count):
+            var leaf = _read_node[core.DescartesLeaf, C, D, E](reader, budget, depth + 1)
+            _grow(leaves, budget)
+            leaves.append(leaf^)
+        var root_count = reader.count(budget)
+        var exact_roots = List[core.QQ]()
+        for _ in range(root_count):
+            var root = _read_node[core.QQ, C, D, E](reader, budget, depth + 1)
+            _grow(exact_roots, budget)
+            exact_roots.append(root^)
+        var bracket_count = reader.count(budget)
+        var brackets = List[core.RootInterval]()
+        for _ in range(bracket_count):
+            var bracket = _read_node[core.RootInterval, C, D, E](reader, budget, depth + 1)
+            _grow(brackets, budget)
+            brackets.append(bracket^)
+        return rebind_var[T](core.DescartesCertificate(low^, high^, leaves^, exact_roots^, brackets^))
+    elif T == core.DescartesRootResult:
+        var outcome = _read_node[core.NumericOutcome, C, D, E](reader, budget, depth + 1)
+        var complete = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        var accurate = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        var isolated = _read_node[Bool, C, D, E](reader, budget, depth + 1)
+        var squarefree = _read_node[core.DensePoly[core.ZZ], C, D, E](reader, budget, depth + 1)
+        var cofactor = _read_node[core.DensePoly[core.ZZ], C, D, E](reader, budget, depth + 1)
+        var bound_exponent = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var certificate = _read_node[core.DescartesCertificate, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.DescartesRootResult(outcome^, complete, accurate, isolated, squarefree^, cofactor^, bound_exponent, certificate^))
+    elif T == core.AlgebraicDescartesCertificate:
+        var squarefree = _read_node[core.DensePoly[core.ZZ], C, D, E](reader, budget, depth + 1)
+        var cofactor = _read_node[core.DensePoly[core.ZZ], C, D, E](reader, budget, depth + 1)
+        var bound_exponent = _read_node[Int, C, D, E](reader, budget, depth + 1)
+        var certificate = _read_node[core.DescartesCertificate, C, D, E](reader, budget, depth + 1)
+        return rebind_var[T](core.AlgebraicDescartesCertificate(squarefree^, cofactor^, bound_exponent, certificate^))
     elif T == core.ComplexBoundarySegment:
         var field382 = _read_node[core.NumericBox, C, D, E](reader, budget, depth + 1)
         var field383 = _read_node[core.NumericBox, C, D, E](reader, budget, depth + 1)
@@ -1580,27 +2023,19 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
         return rebind_var[T](core.ComplexRootResult(field391^, field392, field393, field394, field395^))
     elif T == core.RootMultiplicityCertificate:
         var field399 = _read_node[core.SquarefreeDecomposition[core.QQ], C, D, E](reader, budget, depth + 1)
-        var field401 = reader.count(budget)
-        var field400 = List[Tuple[core.DensePoly[core.QQ], core.DensePoly[core.QQ]]]()
-        for _ in range(field401):
-            var field403 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
-            var field404 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
-            var field402 = (field403^, field404^)
-            _grow(field400, budget)
-            field400.append(field402^)
-        var field406 = reader.count(budget)
-        var field405 = List[core.SturmSequence]()
-        for _ in range(field406):
-            var field407 = _read_node[core.SturmSequence, C, D, E](reader, budget, depth + 1)
-            _grow(field405, budget)
-            field405.append(field407^)
+        var block_count = reader.count(budget)
+        var blocks = List[Int]()
+        for _ in range(block_count):
+            var block = _read_node[Int, C, D, E](reader, budget, depth + 1)
+            _grow(blocks, budget)
+            blocks.append(block)
         var field409 = reader.count(budget)
         var field408 = List[Int]()
         for _ in range(field409):
             var field410 = _read_node[Int, C, D, E](reader, budget, depth + 1)
             _grow(field408, budget)
             field408.append(field410)
-        return rebind_var[T](core.RootMultiplicityCertificate(field399^, field400^, field405^, field408^))
+        return rebind_var[T](core.RootMultiplicityCertificate(field399^, blocks^, field408^))
     elif T == core.RootDiagnostics:
         var field414 = _read_node[core.NumericBox, C, D, E](reader, budget, depth + 1)
         var field415 = _read_node[core.NumericBox, C, D, E](reader, budget, depth + 1)
@@ -1730,12 +2165,12 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
         return rebind_var[T](roots._ExactData(field486^, field489^))
     elif T == roots._CountData:
         var field491 = _read_node[core.DensePoly[core.QQ], C, D, E](reader, budget, depth + 1)
-        var field492 = _read_node[core.RootCountCertificate, C, D, E](reader, budget, depth + 1)
+        var field492 = _read_node[core.DescartesCountCertificate, C, D, E](reader, budget, depth + 1)
         return rebind_var[T](roots._CountData(field491^, field492^))
     elif T == roots._RealCoverData[_CoreKind[C]]:
         var field493 = _read_node[core.DensePoly[_common._Ring[_CoreKind[C]]], C, D, E](reader, budget, depth + 1)
         var field494 = _read_node[core.NumericOptions, C, D, E](reader, budget, depth + 1)
-        var field495 = _read_node[core.RealRootResult, C, D, E](reader, budget, depth + 1)
+        var field495 = _read_node[core.DescartesRootResult, C, D, E](reader, budget, depth + 1)
         return rebind_var[T](roots._RealCoverData[_CoreKind[C]](field493^, field494^, field495^))
     elif T == roots._ComplexCoverData[_CoreKind[C]]:
         var field496 = _read_node[core.DensePoly[_common._Ring[_CoreKind[C]]], C, D, E](reader, budget, depth + 1)
@@ -1749,7 +2184,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field501 = _read_node[core.SparsePoly[core.QQ], C, D, E](reader, budget, depth + 1)
             _grow(field499, budget)
             field499.append(field501^)
-        var field502 = _read_node[core.CADCertificate, C, D, E](reader, budget, depth + 1)
+        var pending = _read_final_cad[C, D, E](reader, False, budget, depth + 1)
         var field503 = Optional[ArcPointer[_cad_algebraic._Embedding]]()
         var scope = reader.number(3, budget)
         if scope & 1:
@@ -1767,6 +2202,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
                 var value = _read_node[algebraic.Real, C, D, E](reader, budget, depth + 1)
                 _grow(fixed, budget)
                 fixed.append((axis, value^))
+        var field502 = _accept_final_cad(pending^, field499, List[UInt8](), False, field503, fixed, budget)
         return rebind_var[T](cad._DecompositionData(field499^, field502^, field503^, fixed^))
     elif T == cad._SolutionData:
         var field508 = reader.count(budget)
@@ -1781,7 +2217,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field512 = _read_node[UInt8, C, D, E](reader, budget, depth + 1)
             _grow(field510, budget)
             field510.append(field512)
-        var field513 = _read_node[core.CylindricalCoveringCertificate, C, D, E](reader, budget, depth + 1)
+        var field513 = _read_node[core.CADCoveringsCertificate, C, D, E](reader, budget, depth + 1)
         var field514 = Optional[ArcPointer[_cad_algebraic._Embedding]]()
         var scope = reader.number(3, budget)
         if scope & 1:
@@ -1880,7 +2316,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
             var field564 = _read_node[UInt8, C, D, E](reader, budget, depth + 1)
             _grow(field562, budget)
             field562.append(field564)
-        var field565 = _read_node[core.CADCoveringCertificate, C, D, E](reader, budget, depth + 1)
+        var pending = _read_final_cad[C, D, E](reader, True, budget, depth + 1)
         var field566 = Optional[ArcPointer[_cad_algebraic._Embedding]]()
         var scope = reader.number(3, budget)
         if scope & 1:
@@ -1898,6 +2334,7 @@ def _read_node[T: Copyable & Deinitable, C: CoefficientRing, D: NumericDomain, E
                 var value = _read_node[algebraic.Real, C, D, E](reader, budget, depth + 1)
                 _grow(fixed, budget)
                 fixed.append((axis, value^))
+        var field565 = _accept_final_cad(pending^, field559, field562, True, field566, fixed, budget)
         return rebind_var[T](cad._CoveringData(field559^, field562^, field565^, field566^, fixed^))
     elif T == _cad_algebraic._Embedding:
         var field572 = reader.count(budget)

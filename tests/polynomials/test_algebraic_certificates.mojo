@@ -1,7 +1,7 @@
 """Public algebraic arithmetic and independent corruption checks."""
 from std.collections import Optional
 from apn_mojo import Rational
-from polynomials import Budget, PolyErrorKind, QQ, NoContext, DensePoly, RealAlgebraic, AlgebraicArithmeticCertificate
+from polynomials import Budget, PolyErrorKind, QQ, NoContext, DensePoly, RealAlgebraic, AlgebraicArithmeticCertificate, RootInterval
 from polynomials import real_root, real_rational, algebraic_compare, check_real_algebraic, check_algebraic_comparison
 from polynomials import algebraic_add, algebraic_subtract, algebraic_multiply, algebraic_negate, algebraic_inverse, check_algebraic_arithmetic
 from support.check import Checker
@@ -22,15 +22,13 @@ def main() raises:
     var combined = f.mul(g, work)
     var first_work = Budget()
     var normalized = _root_cached(combined, QQ(Rational(7, 5)), QQ(Rational(3, 2)), cache, first_work)
-    var sequence_count = len(cache.sequences)
     var hit_work = Budget()
     var repeated = _root_cached(combined, QQ(Rational(7, 5)), QQ(Rational(3, 2)), cache, hit_work)
     c.check(check_real_algebraic(repeated, work) and normalized.polynomial == repeated.polynomial and len(cache.polynomials) == 1, "normalization cache reuses factorization")
     c.check(hit_work.remaining() > first_work.remaining(), "normalization cache saves measured work")
-    c.check(len(cache.sequences) == sequence_count and sequence_count > 0, "cache hit reuses exact Sturm sequences")
-    normalized.sequence.polynomials[0].coefficients[0] = zero.copy()
+    normalized.polynomial.coefficients[0] = zero.copy()
     var intact = _root_cached(combined, QQ(Rational(7, 5)), QQ(Rational(3, 2)), cache, work)
-    c.check(check_real_algebraic(intact, work), "returned root witnesses do not alias cached sequences")
+    c.check(check_real_algebraic(intact, work), "returned root witnesses do not alias cached factorizations")
     var conjugate = _root_cached(combined, QQ(Rational(-3, 2)), QQ(Rational(-7, 5)), cache, work)
     c.check(algebraic_compare(conjugate, a, work).relation == -1 and len(cache.polynomials) == 1, "shared polynomial cache keeps conjugate intervals distinct")
     var invalid = False
@@ -66,8 +64,11 @@ def main() raises:
         c.check(not check_algebraic_arithmetic(a, second, broken, work), "changed annihilator quotient rejected")
         if result.selection:
             broken = result.copy()
-            broken.selection.value().count = 0
-            c.check(not check_algebraic_arithmetic(a, second, broken, work), "corrupted reused Sturm count rejected")
+            broken.selection = RootInterval(QQ(Rational(100)), QQ(Rational(101)))
+            c.check(not check_algebraic_arithmetic(a, second, broken, work), "selection window away from the result rejected")
+            broken = result.copy()
+            broken.selection.value().high = broken.selection.value().low.copy()
+            c.check(not check_algebraic_arithmetic(a, second, broken, work), "empty selection window rejected")
         if operation < 3:
             broken = result.copy()
             var elimination = broken.elimination.take()

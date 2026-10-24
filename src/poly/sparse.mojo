@@ -5,6 +5,7 @@ from std.iter import Iterable, IterableOwned, Iterator, iter, next, StopIteratio
 from std.builtin.rebind import downcast
 from std.builtin.variadics import TypeList
 from std.memory import ArcPointer
+from std.os import abort
 from apn_mojo import Integer, Rational, ExactComplex
 from polynomials import SparsePoly, Term, Monomial, MonomialOrder, Budget, ModInt, Modulus, NoContext, PolyError, PolyErrorKind
 from polynomials import evaluate as _evaluate, derivative as _derivative, integrate_sparse, divide_by_list, CoefficientField
@@ -13,7 +14,7 @@ from ._common import Values, _check_batch, _FieldKind, _Element, _OwnedElement, 
 from polynomials import CoefficientRing
 from ._common import _CoreKind
 from ._interop import _sparse_copy, _variables, _Shape
-from polynomials import gcd as _gcd, content as _content, primitive_part as _primitive_part, resultant as _resultant, subresultants as _subresultants, divide_exact as _divide_exact
+from polynomials import gcd as _gcd, gcd_value as _gcd_value, resultant_value as _resultant_value, content as _content, primitive_part as _primitive_part, resultant as _resultant, subresultants as _subresultants, divide_exact as _divide_exact
 from ._interop import _take_sparse
 from polynomials import QQi, factor_multivariate_gaussian, factor_multivariate_finite_field, SparseSquarefreeDecomposition, squarefree_multivariate
 from polynomials import compose_dense
@@ -117,6 +118,31 @@ def _powers[P: Copyable](monomial: Monomial) -> P:
         return rebind_var[P](downcast[P, _Powers]._unpack(monomial))
 
 
+struct _Core[k: Int](Copyable, Movable):
+    """Shared canonical storage; the empty subscript borrows the SparsePoly.
+
+    Results stay sparse: keeping products packed until first access made
+    every Array instantiate the packed machinery, which more than doubled
+    compile memory for generic poly.sparse programs.
+    """
+    var cell: ArcPointer[SparsePoly[_Ring[Self.k]]]
+
+    def __init__(out self, var sparse: SparsePoly[_Ring[Self.k]]):
+        self.cell = ArcPointer(sparse^)
+
+    def __getitem__(self) -> ref [self.cell[]] SparsePoly[_Ring[Self.k]]:
+        return self.cell[]
+
+    def ring(self) -> ref [self.cell[].ring] _Ring[Self.k].Context:
+        return self.cell[].ring
+
+    def order(self) -> ref [self.cell[].order] MonomialOrder:
+        return self.cell[].order
+
+    def count(self) -> Int:
+        return len(self.cell[].terms)
+
+
 struct Array[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Sized, _WithModulus, _Record):
     """An immutable polynomial sharing its canonical term storage.
 
@@ -127,7 +153,7 @@ struct Array[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Size
     comptime _Format = _Sparse
     comptime _Item = _Scalar[Self.k]
     comptime _Power = Self.P
-    var _core: ArcPointer[SparsePoly[_Ring[Self.k]]]
+    var _core: _Core[Self.k]
     comptime IteratorType[iterable_mut: Bool, //, iterable_origin: Origin[mut=iterable_mut]]: Iterator = _ArrayIterator[Self.P, Self.k, ImmOrigin(iterable_origin)]
     """A borrowing iterator over the shared storage.
 
@@ -148,7 +174,7 @@ struct Array[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Size
         """
         _compact(core.terms, budget)
         _allocation[SparsePoly[_Ring[Self.k]]](1, budget)
-        self._core = ArcPointer(core^)
+        self._core = _Core[Self.k](core^)
 
     def __iter__(ref self) -> Self.IteratorType[origin_of(self)]:
         """Iterate over values without copying the backing buffer.
@@ -164,7 +190,7 @@ struct Array[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Size
         Returns:
             The number of stored entries.
         """
-        return len(self._core[].terms)
+        return self._core.count()
 
     def __getitem__(self, index: Int) -> Tuple[Self.P, _Scalar[Self.k]]:
         """Return the entry at a valid zero-based index.
@@ -219,7 +245,7 @@ struct Array[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Size
             The prime modulus for modular data, or zero otherwise.
         """
         comptime if Self.k == 3:
-            return rebind[Modulus](self._core[].ring).value
+            return rebind[Modulus](self._core.ring()).value
         return 0
 
     def domain(self) -> String:
@@ -422,9 +448,9 @@ def _pair[k: Int, A: Iterable, B: Iterable, P: Copyable & Deinitable, C: Copyabl
     _ = _merge_modulus(left.modulus(), right.modulus())
     var ctx: _Ring[k].Context
     comptime if _Kind[C] == 3:
-        ctx = rebind_var[_Ring[k].Context](left._core[].ring.copy())
+        ctx = rebind_var[_Ring[k].Context](left._core.ring().copy())
     elif _Kind[D] == 3:
-        ctx = rebind_var[_Ring[k].Context](right._core[].ring.copy())
+        ctx = rebind_var[_Ring[k].Context](right._core.ring().copy())
     else:
         ctx = rebind_var[_Ring[k].Context](NoContext())
     var p = _promote[k](left, ctx, budget)
@@ -1078,16 +1104,12 @@ def power[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](value
         raise PolyError(PolyErrorKind.DOMAIN, "polynomial exponent must be nonnegative")
     comptime k = _Kind[C]
     var factor = _prepare[I, P, C](values, budget)
-    var result = Array[P, k](SparsePoly[_Ring[k]].constant(_Ring[k].one(factor._core[].ring), factor._core[].order, budget), budget)
-    var remaining = exponent
-    while remaining:
-        budget.charge(1)
-        if remaining & 1:
-            result = Array[P, k](result._core[].mul(factor._core[], budget), budget)
-        remaining >>= 1
-        if remaining:
-            factor = Array[P, k](factor._core[].mul(factor._core[], budget), budget)
-    return result^
+    if exponent == 0:
+        return Array[P, k](SparsePoly[_Ring[k]].constant(_Ring[k].one(factor._core[].ring), factor._core[].order, budget), budget)
+    # From the leading bit down: square, then multiply by the base alone, so
+    # the last and largest product is a square. Few-term bases may take the
+    # power recurrence instead.
+    return Array[P, k](factor._core[].pow(UInt64(exponent), budget), budget)
 
 
 def integral[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](values: I, mut budget: Budget, *, axis: Int = 0) raises PolyError -> Array[P, _FieldKind[_Kind[C]]] where _Element[I] == Tuple[P, C]:
@@ -1735,6 +1757,9 @@ def gcd[A: Iterable, B: Iterable, P: Copyable & Deinitable, C: Copyable & Deinit
     """
     comptime k = _Join[_Kind[C], _Kind[D]]
     var pair = _pair[k, A, B, P, C, D](a, b, budget)
+    if method == "auto":
+        var value = _gcd_value(pair[0]._core[], pair[1]._core[], budget)
+        return Array[P, k](_take_sparse(value), budget)
     var result = _gcd_dispatch(pair[0]._core[], pair[1]._core[], method, budget)
     return Array[P, k](_take_sparse(result.gcd), budget)
 
@@ -1848,8 +1873,8 @@ def resultant[A: Iterable, B: Iterable, P: Copyable & Deinitable, C: Copyable & 
     comptime k = _Join[_Kind[C], _Kind[D]]
     _axis[P](axis)
     var pair = _pair[k, A, B, P, C, D](a, b, budget)
-    var result = _resultant(pair[0]._core[], pair[1]._core[], Int64(axis), budget)
-    return Array[P, k](_take_sparse(result.resultant), budget)
+    var value = _resultant_value(pair[0]._core[], pair[1]._core[], Int64(axis), budget)
+    return Array[P, k](_take_sparse(value), budget)
 
 def resultant[A: Iterable, B: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, D: Copyable & Deinitable](a: A, b: B, *, max_steps: UInt64 = UInt64.MAX, axis: Int = 0) raises PolyError -> Array[P, _Join[_Kind[C], _Kind[D]]] where _Element[A] == Tuple[P, C] and _Element[B] == Tuple[P, D]:
     """Eliminate the variable using the Sylvester sign convention.
@@ -2639,7 +2664,7 @@ def definite_integral[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deini
 
 from . import roots as _roots
 from . import algebraic as _algebraic
-from polynomials import NumericOptions, RealRootSink, ComplexRootSink, RootStreamReceipt, RealRootStreamChecker, ComplexRootStreamChecker
+from polynomials import NumericOptions, RealRootSink, ComplexRootSink, RootStreamReceipt, RealRootStreamChecker, ComplexRootStreamChecker, DescartesRootSink
 
 
 def real_roots[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](values: I, mut budget: Budget) raises PolyError -> _roots.ExactRoots where _Element[I] == Tuple[P, C]:
@@ -2899,6 +2924,64 @@ def real_root_cover_to[I: Iterable, P: Copyable & Deinitable, C: Copyable & Dein
     return real_root_cover_to[I, P, C, S](values, sink, budget, options=options, complete_only=complete_only)
 
 
+def real_root_cover_to[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, S: DescartesRootSink](values: I, mut sink: S, mut budget: Budget, *, options: NumericOptions = NumericOptions(), complete_only: Bool = False) raises PolyError -> RootStreamReceipt where _Element[I] == Tuple[P, C]:
+    """Prepare a real root cover stream.
+
+    The sparse polynomial is converted to dense storage under the shared budget.
+    Only one-variable power shapes are accepted.
+
+    Parameters:
+        I: The inferred input type.
+        P: The inferred power shape.
+        C: The inferred input type.
+        S: The inferred sink type.
+
+    Args:
+        values: A univariate sparse polynomial with exact coefficients.
+        sink: The consumer of the Descartes header and leaves.
+        budget: The shared work allowance for preparation and computation.
+        options: The precision and root-cover settings.
+        complete_only: Raise unless all requested properties succeed.
+
+    Returns:
+        The computed result, with its evidence retained.
+
+    Raises:
+        PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
+    """
+    comptime assert _Kind[_Element[_dense.Array[_Kind[C]]]] >= 0, "root covers require exact coefficients"
+    return _dense.real_root_cover_to(_univariate(_prepare[I, P, C](values, budget), budget), sink, budget, options=options, complete_only=complete_only)
+
+
+def real_root_cover_to[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, S: DescartesRootSink](values: I, mut sink: S, *, max_steps: UInt64 = UInt64.MAX, options: NumericOptions = NumericOptions(), complete_only: Bool = False) raises PolyError -> RootStreamReceipt where _Element[I] == Tuple[P, C]:
+    """Prepare a real root cover stream.
+
+    The sparse polynomial is converted to dense storage under the shared budget.
+    Only one-variable power shapes are accepted.
+
+    Parameters:
+        I: The inferred input type.
+        P: The inferred power shape.
+        C: The inferred input type.
+        S: The inferred sink type.
+
+    Args:
+        values: A univariate sparse polynomial with exact coefficients.
+        sink: The consumer of the Descartes header and leaves.
+        max_steps: The complete call's work allowance; defaults to UInt64.MAX.
+        options: The precision and root-cover settings.
+        complete_only: Raise unless all requested properties succeed.
+
+    Returns:
+        The computed result, with its evidence retained.
+
+    Raises:
+        PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
+    """
+    var budget = Budget(max_steps)
+    return real_root_cover_to[I, P, C, S](values, sink, budget, options=options, complete_only=complete_only)
+
+
 def real_root_checker[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](values: I, mut budget: Budget, *, options: NumericOptions = NumericOptions()) raises PolyError -> _dense._RealChecker[_Kind[C]] where _Element[I] == Tuple[P, C]:
     """Prepare a real root stream checker.
 
@@ -3114,7 +3197,7 @@ def complex_root_checker[I: Iterable, P: Copyable & Deinitable, C: Copyable & De
     var budget = Budget(max_steps)
     return rebind_var[_dense._ComplexChecker[_Kind[C]]](complex_root_checker[I, P, C](values, budget, options=options))
 
-from polynomials import GroebnerBasis as _CoreBasis, groebner as _groebner, reduce as _reduce, MembershipCertificate, check_membership as _check_membership
+from polynomials import GroebnerBasis as _CoreBasis, groebner as _groebner, reduce as _reduce, MembershipCertificate, check_membership as _check_membership, check_groebner_basis as _check_groebner_basis
 
 comptime _Field[k: Int] = downcast[_Ring[k], CoefficientField]
 
@@ -3166,6 +3249,8 @@ struct _BasisData[k: Int](Copyable, Movable):
     var generators: List[SparsePoly[_Field[Self.k]]]
     var basis: _CoreBasis[_Field[Self.k]]
     var context: _Ring[Self.k].Context
+    var pending: Bool
+    """Whether the core basis's polynomials were dropped, to be rebuilt from the basis values when first needed."""
 
 
 @fieldwise_init
@@ -3222,7 +3307,30 @@ struct Basis[P: Copyable & Deinitable, k: Int](Copyable, Movable, Iterable, Size
         Returns:
             Immutable core basis data in the requested monomial order.
         """
+        try:
+            self._ensure_core()
+        except e:
+            abort(String("cannot rebuild the core basis: ", e))
         return self._data[].basis
+
+    def _ensure_core(self) raises PolyError:
+        """Rebuild the core basis's polynomials from the basis values if they were dropped.
+
+        A basis computed without witnesses keeps its polynomials once, as
+        its canonical arrays; the core basis in the computational order is
+        rebuilt on first use, shared by every copy, and charged to no
+        caller's budget since the values already paid for it.
+        """
+        if not self._data[].pending:
+            return
+        var work = Budget()
+        ref core = self._data[].basis
+        _allocation[SparsePoly[_Field[Self.k]]](len(self._values), work)
+        var polys = List[SparsePoly[_Field[Self.k]]](capacity=len(self._values))
+        for i in range(len(self._values)):
+            polys.append(rebind_var[SparsePoly[_Field[Self.k]]](self._values[i]._core[].reorder(core.order, work)))
+        core.basis = polys^
+        self._data[].pending = False
 
 
 @fieldwise_init
@@ -3250,26 +3358,38 @@ def _monomial_order[P: Copyable & Deinitable](order: String, axes: List[Int], mu
     return MonomialOrder(kind, _axes[P](axes, budget), budget)
 
 
-def _basis[P: Copyable & Deinitable, k: Int](prepared: List[Array[P, k]], ctx: _Ring[k].Context, order: String, axes: List[Int], witnesses: Bool, mut budget: Budget) raises PolyError -> Basis[P, k]:
+def _basis[P: Copyable & Deinitable, k: Int](prepared: List[Array[P, k]], ctx: _Ring[k].Context, order: String, axes: List[Int], witnesses: Bool, certify: Bool, mut budget: Budget) raises PolyError -> Basis[P, k]:
     var monomial_order = _monomial_order[P](order, axes, budget)
     _allocation[SparsePoly[_Field[k]]](len(prepared), budget)
     var generators = List[SparsePoly[_Field[k]]](capacity=len(prepared))
     for p in prepared:
         generators.append(rebind_var[SparsePoly[_Field[k]]](p._core[].reorder(monomial_order, budget)))
-    var result = _groebner(generators, monomial_order, budget, track_cofactors=witnesses)
+    var result = _groebner(generators, monomial_order, budget, certify=certify, trace=witnesses)
     _allocation[Array[P, k]](len(result.basis), budget)
     var values = List[Array[P, k]](capacity=len(result.basis))
     var canonical = _order[P](budget)
-    for p in result.basis:
-        values.append(Array[P, k](rebind_var[SparsePoly[_Ring[k]]](p.reorder(canonical, budget)), budget))
+    # Without cofactors, the polynomials are kept once, as the canonical
+    # arrays: each core polynomial goes once its array is made, and the core
+    # basis is rebuilt from the arrays when first needed.
+    var pending = not result.cofactors and not result.trace
+    for i in range(len(result.basis)):
+        if pending:
+            var spare = Budget()
+            var p = SparsePoly[_Field[k]].zero(monomial_order, result.basis[i].ring, spare)
+            swap(p, result.basis[i])
+            values.append(Array[P, k](rebind_var[SparsePoly[_Ring[k]]](p^._moved_to(canonical, budget)), budget))
+        else:
+            values.append(Array[P, k](rebind_var[SparsePoly[_Ring[k]]](result.basis[i].reorder(canonical, budget)), budget))
+    if pending:
+        result.basis = List[SparsePoly[_Field[k]]]()
     _allocation[_BasisData[k]](1, budget)
     var modulus = UInt64(0)
     comptime if k == 3:
         modulus = rebind[Modulus](ctx).value
-    return Basis[P, k](ArcPointer(_BasisData[k](generators^, result^, ctx.copy())), Values[Array[P, k], k](values^, modulus, budget))
+    return Basis[P, k](ArcPointer(_BasisData[k](generators^, result^, ctx.copy(), pending)), Values[Array[P, k], k](values^, modulus, budget))
 
 
-def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](generators: I, mut budget: Budget, *, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True) raises PolyError -> Basis[P, _FieldKind[_Kind[C]]] where _Element[_Nested[I]] == Tuple[P, C]:
+def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](generators: I, mut budget: Budget, *, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True, certify: Bool = True) raises PolyError -> Basis[P, _FieldKind[_Kind[C]]] where _Element[_Nested[I]] == Tuple[P, C]:
     """Compute a reusable reduced monic Groebner basis from sparse polynomials.
 
     Integer coefficients promote to QQ. QQi and prime fields remain in their
@@ -3286,6 +3406,7 @@ def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](ge
         order: One of lex, grlex, or grevlex; defaults to grevlex.
         axes: Variable priority, highest first; defaults to increasing axis order.
         witnesses: Retain cofactor rows for membership witnesses and basis verification.
+        certify: Over QQ without witnesses, prove the basis computed from modular images exactly; False skips the proof, and the result is then the reduced basis with high probability.
 
     Returns:
         The computed result, with its evidence retained.
@@ -3295,10 +3416,10 @@ def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](ge
     """
     comptime k = _FieldKind[_Kind[C]]
     var prepared = _system[k, I, P, C](generators, budget)
-    return _basis(prepared[0], prepared[1], order, axes, witnesses, budget)
+    return _basis(prepared[0], prepared[1], order, axes, witnesses, certify, budget)
 
 
-def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](generators: I, *, max_steps: UInt64 = UInt64.MAX, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True) raises PolyError -> Basis[P, _FieldKind[_Kind[C]]] where _Element[_Nested[I]] == Tuple[P, C]:
+def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](generators: I, *, max_steps: UInt64 = UInt64.MAX, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True, certify: Bool = True) raises PolyError -> Basis[P, _FieldKind[_Kind[C]]] where _Element[_Nested[I]] == Tuple[P, C]:
     """Compute a reusable reduced monic Groebner basis from sparse polynomials.
 
     Integer coefficients promote to QQ. QQi and prime fields remain in their
@@ -3315,6 +3436,7 @@ def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](ge
         order: One of lex, grlex, or grevlex; defaults to grevlex.
         axes: Variable priority, highest first; defaults to increasing axis order.
         witnesses: Retain cofactor rows for membership witnesses and basis verification.
+        certify: Over QQ without witnesses, prove the basis computed from modular images exactly; False skips the proof, and the result is then the reduced basis with high probability.
 
     Returns:
         The computed result, with its evidence retained.
@@ -3323,7 +3445,7 @@ def groebner[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable](ge
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
     var budget = Budget(max_steps)
-    return groebner[I, P, C](generators, budget, order=order, axes=axes, witnesses=witnesses)
+    return groebner[I, P, C](generators, budget, order=order, axes=axes, witnesses=witnesses, certify=certify)
 
 
 def _basis_input[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, k: Int](values: I, basis: Basis[P, k], mut budget: Budget) raises PolyError -> Array[P, k] where _Element[I] == Tuple[P, C]:
@@ -3354,6 +3476,7 @@ def reduce[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, k: I
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
     var p = _basis_input[I, P, C, k](values, basis, budget)
+    basis._ensure_core()
     var division = _reduce(rebind[SparsePoly[_Field[k]]](p._core[]), basis._data[].basis, budget)
     return Array[P, k](rebind_var[SparsePoly[_Ring[k]]](division.remainder.reorder(_order[P](budget), budget)), budget)
 
@@ -3477,7 +3600,7 @@ def membership[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, 
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
-    if not basis._data[].basis.cofactors:
+    if not basis._data[].basis.cofactors and not basis._data[].basis.trace:
         raise PolyError(PolyErrorKind.DOMAIN, "membership witnesses require groebner(..., witnesses=True)")
     var p = _basis_input[I, P, C, k](values, basis, budget)
     var core = rebind_var[SparsePoly[_Field[k]]](p._core[].reorder(basis._data[].basis.order, budget))
@@ -3485,6 +3608,17 @@ def membership[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, 
     if not division.remainder.is_zero():
         return None
     var n = len(basis._data[].generators)
+    # A traced basis expands the rows only of the elements the quotients use.
+    ref evidence = basis._data[].basis
+    var rows = List[List[SparsePoly[_Field[k]]]]()
+    if not evidence.cofactors:
+        _allocation[List[SparsePoly[_Field[k]]]](len(division.quotients), budget)
+        for j in range(len(division.quotients)):
+            budget.charge(1)
+            if division.quotients[j].is_zero():
+                rows.append(List[SparsePoly[_Field[k]]]())
+            else:
+                rows.append(evidence.trace.value().cofactors(j, basis._data[].generators, budget))
     _allocation[SparsePoly[_Field[k]]](n, budget)
     var row = List[SparsePoly[_Field[k]]](capacity=n)
     for i in range(n):
@@ -3492,7 +3626,12 @@ def membership[I: Iterable, P: Copyable & Deinitable, C: Copyable & Deinitable, 
         var total = SparsePoly[_Field[k]].zero(core.order, core.ring, budget)
         for j in range(len(division.quotients)):
             budget.charge(1)
-            total = total.add(division.quotients[j].mul(basis._data[].basis.cofactors.value()[j][i], budget), budget)
+            if division.quotients[j].is_zero():
+                continue
+            if evidence.cofactors:
+                total = total.add(division.quotients[j].mul(evidence.cofactors.value()[j][i], budget), budget)
+            else:
+                total = total.add(division.quotients[j].mul(rows[j][i], budget), budget)
         row.append(total^)
     _allocation[Array[P, k]](n, budget)
     var values_out = List[Array[P, k]](capacity=n)
@@ -3595,9 +3734,13 @@ def check_groebner[P: Copyable & Deinitable, k: Int](basis: Basis[P, k], mut bud
     """
     ref data = basis._data[]
     ref core = data.basis
-    if not core.cofactors:
+    if not core.cofactors and not core.trace:
         raise PolyError(PolyErrorKind.DOMAIN, "basis checking requires witnesses=True")
-    if len(core.basis) != len(core.cofactors.value()) or len(core.basis) != len(basis):
+    if len(core.basis) != len(basis) or (core.cofactors and len(core.basis) != len(core.cofactors.value())):
+        return False
+    # A trace proves the basis lies in the ideal by recomputing it from the
+    # generators; explicit rows prove it element by element below.
+    if core.trace and not core.trace.value().replay(data.generators, core.basis, budget):
         return False
     for i in range(len(core.basis)):
         budget.charge(1)
@@ -3607,30 +3750,17 @@ def check_groebner[P: Copyable & Deinitable, k: Int](basis: Basis[P, k], mut bud
             return False
         if p.is_zero():
             return False
-        _allocation[SparsePoly[_Field[k]]](len(core.cofactors.value()[i]), budget)
-        var row = List[SparsePoly[_Field[k]]]()
-        for q in core.cofactors.value()[i]:
-            row.append(q.reorder(core.order, budget))
-        if not _check_membership(p, data.generators, MembershipCertificate[_Field[k]](row^), budget):
-            return False
+        if core.cofactors:
+            _allocation[SparsePoly[_Field[k]]](len(core.cofactors.value()[i]), budget)
+            var row = List[SparsePoly[_Field[k]]]()
+            for q in core.cofactors.value()[i]:
+                row.append(q.reorder(core.order, budget))
+            if not _check_membership(p, data.generators, MembershipCertificate[_Field[k]](row^), budget):
+                return False
         if not p.leading(budget).coefficient.sub(_Field[k].one(p.ring), budget).is_zero():
             return False
-    for p in data.generators:
-        if not _reduce(p, core, budget).remainder.is_zero():
-            return False
-    for i in range(len(core.basis)):
-        for j in range(i):
-            budget.charge(1)
-            var a = core.basis[i].leading(budget)
-            var b = core.basis[j].leading(budget)
-            var common = a.monomial.lcm(b.monomial, budget)
-            _allocation[Term[_Field[k]]](2, budget)
-            var left = SparsePoly[_Field[k]].from_terms([Term[_Field[k]](common.div(a.monomial, budget), a.coefficient.inverse(budget))], core.order, data.context, budget)
-            var right = SparsePoly[_Field[k]].from_terms([Term[_Field[k]](common.div(b.monomial, budget), b.coefficient.inverse(budget))], core.order, data.context, budget)
-            var s_polynomial = left.mul(core.basis[i], budget).sub(right.mul(core.basis[j], budget), budget)
-            if not _reduce(s_polynomial, core, budget).remainder.is_zero():
-                return False
-    return True
+    # The inputs reduce to zero, the other containment, and Buchberger's criterion.
+    return _check_groebner_basis(data.generators, core, budget)
 
 
 def check_groebner[P: Copyable & Deinitable, k: Int](basis: Basis[P, k], *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Bool:
@@ -3695,7 +3825,7 @@ def _system_tuple[P: Copyable & Deinitable, k: Int, *Ts: Copyable & Deinitable](
     return result^, ctx^
 
 
-def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable & Deinitable](generators: Tuple[*Ts], mut budget: Budget, *, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True) raises PolyError -> Basis[P, _SystemKind[P, Tuple[*Ts]]] where _PolynomialElement[Tuple[*Ts].Ts[0]] == Tuple[P, C]:
+def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable & Deinitable](generators: Tuple[*Ts], mut budget: Budget, *, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True, certify: Bool = True) raises PolyError -> Basis[P, _SystemKind[P, Tuple[*Ts]]] where _PolynomialElement[Tuple[*Ts].Ts[0]] == Tuple[P, C]:
     """Infer a common field across a tuple of differently typed polynomials.
 
     Parameters:
@@ -3709,6 +3839,7 @@ def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable &
         order: One of lex, grlex, or grevlex.
         axes: Variable priority, highest first.
         witnesses: Retain original-generator cofactors for independent checking.
+        certify: Over QQ without witnesses, prove the basis computed from modular images exactly; False skips the proof, and the result is then the reduced basis with high probability.
 
     Returns:
         The computed result, with its evidence retained.
@@ -3718,10 +3849,10 @@ def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable &
     """
     comptime k = _SystemKind[P, Tuple[*Ts]]
     var prepared = _system_tuple[P, k](generators, budget)
-    return _basis(prepared[0], prepared[1], order, axes, witnesses, budget)
+    return _basis(prepared[0], prepared[1], order, axes, witnesses, certify, budget)
 
 
-def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable & Deinitable](generators: Tuple[*Ts], *, max_steps: UInt64 = UInt64.MAX, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True) raises PolyError -> Basis[P, _SystemKind[P, Tuple[*Ts]]] where _PolynomialElement[Tuple[*Ts].Ts[0]] == Tuple[P, C]:
+def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable & Deinitable](generators: Tuple[*Ts], *, max_steps: UInt64 = UInt64.MAX, order: String = "grevlex", axes: List[Int] = List[Int](), witnesses: Bool = True, certify: Bool = True) raises PolyError -> Basis[P, _SystemKind[P, Tuple[*Ts]]] where _PolynomialElement[Tuple[*Ts].Ts[0]] == Tuple[P, C]:
     """Infer a common field across a tuple of differently typed polynomials.
 
     Parameters:
@@ -3735,6 +3866,7 @@ def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable &
         order: One of lex, grlex, or grevlex.
         axes: Variable priority, highest first.
         witnesses: Retain original-generator cofactors for independent checking.
+        certify: Over QQ without witnesses, prove the basis computed from modular images exactly; False skips the proof, and the result is then the reduced basis with high probability.
 
     Returns:
         The computed result, with its evidence retained.
@@ -3743,7 +3875,7 @@ def groebner[P: Copyable & Deinitable, C: Copyable & Deinitable, *Ts: Copyable &
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
     var budget = Budget(max_steps)
-    return groebner[P, C, *Ts](generators, budget, order=order, axes=axes, witnesses=witnesses)
+    return groebner[P, C, *Ts](generators, budget, order=order, axes=axes, witnesses=witnesses, certify=certify)
 
 
 # Numerical operations keep output precision explicit.

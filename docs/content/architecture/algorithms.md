@@ -65,6 +65,27 @@ returned basis is reduced, monic, and sorted by decreasing leading monomial.
 Optional cofactor tracking expresses basis elements in terms of the original
 generators.
 
+Without cofactor tracking, orders over at most sixteen variables run the same
+steps on packed exponent vectors. Each monomial is a fixed-width vector in the
+order's priority order with its total degree cached, so comparison and
+divisibility take a few vector operations. The polynomial being reduced is kept
+in geobuckets, sorted term lists of geometrically growing capacity, so each
+reduction step merges the reducer's tail into the smallest bucket that fits it.
+Over prime fields residues are multiplied by precomputed quotients while they
+are merged. Over primes below $2^{31}$ under GRLEX and GREVLEX the packed path
+is F4 instead: each round turns every pair of least LCM degree, with the
+reducers symbolic preprocessing finds, into one sparse matrix and reduces its
+rows in a dense 64-bit accumulator that is reduced modulo the prime only when
+read. Over `QQ` under GREVLEX the inputs are homogenized, and the basis comes
+from F4 images modulo primes, where later primes replay the first prime's
+recorded matrices, Chinese remaindering, rational reconstruction,
+and an exact certificate that the result is the reduced basis, whose S-pairs
+are reduced in F4 matrices over the integers; the packed engine computes the
+basis exactly if reconstruction gives up. Over `QQ` the computation is fraction-free over the integers: each
+remainder is an integer multiple of the rational one, so the monic basis is the
+same. Every path returns exactly the basis of the general engine; only the work
+charged to the budget differs.
+
 Ideal membership enables tracking and returns the multipliers for a direct
 polynomial identity. This keeps membership checking independent of pair
 selection, pruning, or basis construction. See [Gröbner theory](../theory/groebner.md)

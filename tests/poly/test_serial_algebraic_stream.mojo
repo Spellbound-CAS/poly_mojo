@@ -106,7 +106,7 @@ def main() raises:
         limited = e.kind == PolyErrorKind.LIMIT
     assert_true(limited)
     assert_true(p[0] == root)
-    var many = List[algebraic.Real](length=256, fill=algebraic.asreal(1))
+    var many = List[algebraic.Real](length=512, fill=algebraic.asreal(1))
     var large = Sink(String(), 0, 0)
     dense.dump(many, large)
     assert_true(large.chunks > 1)

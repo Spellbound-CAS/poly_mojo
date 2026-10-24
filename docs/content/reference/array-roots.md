@@ -51,6 +51,13 @@ Interval queries accept real algebraic coefficients and endpoints. For `AA` or
 `roots.polish` uses its explicit complex context. Both retain and check the
 coefficient-conversion witnesses.
 
+A real cover of integer or rational coefficients carries a `DescartesRootResult`
+as its evidence: `roots.check` verifies its certificate, `roots.refine`
+tightens its brackets without searching again, and `roots.intervals` lists one
+interval per root, with exact rational roots as points. Its streams go to a
+`DescartesRootSink`, such as the checker `real_root_checker` returns for
+integer or rational input.
+
 Use `poly.io` to archive complete root results, accepted covers, multiplicities,
 diagnostics, and successful polishing evidence. An incomplete cover or an
 unverified polishing result is rejected by the archive writer and reader.

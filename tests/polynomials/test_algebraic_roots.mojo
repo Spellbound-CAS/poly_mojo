@@ -27,7 +27,7 @@ def main() raises:
     for corruption in range(5):
         var broken = proof.copy()
         if corruption == 0:
-            broken.all_roots.count += 1
+            _ = broken.all_roots.certificate.leaves.pop()
         elif corruption == 1:
             broken.accepted[0] = 1
         elif corruption == 2:

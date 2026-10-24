@@ -12,7 +12,7 @@ from ._common import Values, _FieldKind, _Join, _Element, _OwnedElement, _Kind, 
 from polynomials import CoefficientRing
 from ._common import _CoreKind
 from ._interop import _dense_copy
-from polynomials import SparsePoly, gcd as _gcd, content as _content, primitive_part as _primitive_part, extended_gcd as _extended_gcd, resultant as _resultant, subresultants as _subresultants, divide_exact as _divide_exact, pseudo_divmod as _pseudo_divmod
+from polynomials import SparsePoly, gcd as _gcd, gcd_value as _gcd_value, content as _content, primitive_part as _primitive_part, extended_gcd as _extended_gcd, resultant as _resultant, resultant_value as _resultant_value, subresultants as _subresultants, divide_exact as _divide_exact, divide_exact_dense as _divide_exact_dense, pseudo_divmod as _pseudo_divmod
 from ._interop import _dense_sparse, _take_dense
 from polynomials import interpolate as _interpolate, hermite_interpolate as _hermite_interpolate, MultipointPlan, affine_transform as _affine_transform, taylor_shift as _taylor_shift, jet_evaluate as _jet_evaluate, definite_integral as _definite_integral
 from ._common import _sequence, _sequence_coefficients, _values_from_core, _data_context, _Nested, _rows
@@ -24,6 +24,8 @@ from polynomials import divide_by_list as _divide_by_list
 comptime _BLOCK = CoefficientBuffer[ZZ]._block_size
 comptime _FIRST = CoefficientBuffer[ZZ]._initial_size
 comptime _SECOND = CoefficientBuffer[ZZ]._second_size
+comptime _TREE_POINTS = 64
+"""Prime field point and coefficient counts from which evaluate_many uses a subproduct tree."""
 
 
 struct Array[k: Int](Copyable, Movable, Iterable, Sized, _WithModulus, _Record):
@@ -1001,6 +1003,8 @@ def evaluate_many[I: Iterable, X: Iterable](values: I, points: X, mut budget: Bu
         context.observe(modulus, budget)
     var prepared = Optional[Array[k]]()
     var output = List[_Scalar[k]]()
+    # Prime field points are gathered first: many of them share one subproduct tree.
+    var gathered = List[ModInt]()
     var cursor = iter(points)
     comptime T = downcast[type_of(cursor).Element, Copyable & Deinitable]
     while True:
@@ -1016,10 +1020,28 @@ def evaluate_many[I: Iterable, X: Iterable](values: I, points: X, mut budget: Bu
         var ctx = context.get()
         if not prepared:
             prepared = _promote[k](input, ctx, budget)
-        var value = evaluate_dense(prepared.value()._core[], _wrap[k](_convert[k](point, ctx, budget)), budget)
-        _charge_size(value.size(), budget)
-        _grow(output, budget)
-        output.append(_unwrap[k](value))
+        comptime if k == 3:
+            _grow(gathered, budget)
+            gathered.append(rebind_var[ModInt](_wrap[k](_convert[k](point, ctx, budget))))
+        else:
+            var value = evaluate_dense(prepared.value()._core[], _wrap[k](_convert[k](point, ctx, budget)), budget)
+            _charge_size(value.size(), budget)
+            _grow(output, budget)
+            output.append(_unwrap[k](value))
+    comptime if k == 3:
+        if len(gathered):
+            ref core = rebind[DensePoly[ModInt]](prepared.value()._core[])
+            var values: List[ModInt]
+            if len(gathered) >= _TREE_POINTS and core.ring.value > 2 and len(core.coefficients) >= _TREE_POINTS:
+                values = MultipointPlan[ModInt].prepare(core.variable, core.ring, gathered, budget).evaluate(core, budget)
+            else:
+                values = List[ModInt](capacity=len(gathered))
+                for x in gathered:
+                    values.append(evaluate_dense(core, x, budget))
+            _allocation[_Scalar[k]](len(values), budget)
+            output.reserve(len(values))
+            for v in values:
+                output.append(rebind_var[_Scalar[k]](v.copy()))
     var ctx = context.get()
     comptime if k == 3:
         modulus = rebind[Modulus](ctx).value
@@ -1458,8 +1480,7 @@ def gcd[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget) raises PolyErr
     var pair = _pair[k](a, b, budget)
     var left = _dense_sparse(pair[0]._core[], budget)
     var right = _dense_sparse(pair[1]._core[], budget)
-    var result = _gcd(left, right, budget)
-    return _from_sparse[k](result.gcd, budget)
+    return _from_sparse[k](_gcd_value(left, right, budget), budget)
 
 def gcd[A: Iterable, B: Iterable](a: A, b: B, *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> Array[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]:
     """Return a positive-leading integer GCD or a monic field GCD.
@@ -1505,6 +1526,12 @@ def divide_exact[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget) raise
     """
     comptime k = _Join[_Kind[_Element[A]], _Kind[_Element[B]]]
     var pair = _pair[k](a, b, budget)
+    comptime if k == 0 or k == 3:
+        # ZZ and prime fields divide densely, without a round trip through sparse terms.
+        var dense = _divide_exact_dense(pair[0]._core[], pair[1]._core[], budget)
+        if not dense:
+            return None
+        return Optional(Array[k](dense.take(), budget))
     var left = _dense_sparse(pair[0]._core[], budget)
     var right = _dense_sparse(pair[1]._core[], budget)
     var result = _divide_exact(left, right, budget)
@@ -1560,11 +1587,11 @@ def resultant[A: Iterable, B: Iterable](a: A, b: B, mut budget: Budget) raises P
     var pair = _pair[k](a, b, budget)
     var left = _dense_sparse(pair[0]._core[], budget)
     var right = _dense_sparse(pair[1]._core[], budget)
-    var result = _resultant(left, right, 0, budget)
-    if not len(result.resultant.terms):
+    var value = _resultant_value(left, right, 0, budget)
+    if not len(value.terms):
         return _unwrap[k](_Ring[k].zero(left.ring))
-    _charge_size(result.resultant.terms[0].coefficient.size(), budget)
-    return _unwrap[k](result.resultant.terms[0].coefficient)
+    _charge_size(value.terms[0].coefficient.size(), budget)
+    return _unwrap[k](value.terms[0].coefficient)
 
 def resultant[A: Iterable, B: Iterable](a: A, b: B, *, max_steps: UInt64 = UInt64.MAX) raises PolyError -> _Scalar[_Join[_Kind[_Element[A]], _Kind[_Element[B]]]]:
     """Eliminate the variable using the Sylvester sign convention.
@@ -2508,7 +2535,7 @@ from . import roots as _roots
 comptime _AlgebraicInterval[C: AnyType, L: AnyType, H: AnyType] = _Kind[C] == 4 or _Kind[L] == 4 or _Kind[H] == 4
 comptime _Count[C: AnyType, L: AnyType, H: AnyType] = _roots.AlgebraicCount if _AlgebraicInterval[C, L, H] else _roots.RootCount
 from . import algebraic as _algebraic
-from polynomials import real_root as _real_root, NumericOptions, real_roots_exact, complex_roots_exact, real_roots_exact_to, complex_roots_exact_to, RealRootSink, ComplexRootSink, RootStreamReceipt, RealRootStreamChecker, ComplexRootStreamChecker
+from polynomials import real_root as _real_root, NumericOptions, real_roots_exact, complex_roots_exact, real_roots_exact_to, complex_roots_exact_to, RealRootSink, ComplexRootSink, RootStreamReceipt, RealRootStreamChecker, ComplexRootStreamChecker, DescartesRootSink, DescartesStreamChecker
 
 
 def _real_input[I: Iterable](values: I, mut budget: Budget) raises PolyError -> Array[1]:
@@ -2766,11 +2793,56 @@ def real_root_cover_to[I: Iterable, S: RealRootSink](values: I, mut sink: S, mut
     Raises:
         PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
     """
-    comptime if _Kind[_Element[I]] >= 4:
-        return _roots._ac._real_to(_prepare(values, budget), options, sink, budget, complete_only)
-    else:
-        var p = _real_input(values, budget)
-        return real_roots_exact_to(p._core[], options, sink, budget, complete_only=complete_only)
+    comptime assert _Kind[_Element[I]] >= 4, "exact coefficients stream Descartes leaves to a DescartesRootSink"
+    return _roots._ac._real_to(_prepare(values, budget), options, sink, budget, complete_only)
+
+
+def real_root_cover_to[I: Iterable, S: DescartesRootSink](values: I, mut sink: S, mut budget: Budget, *, options: NumericOptions = NumericOptions(), complete_only: Bool = False) raises PolyError -> RootStreamReceipt where _Kind[_Element[I]] >= 0:
+    """Stream the Descartes certificate of exact real roots leaf by leaf without collecting it.
+
+    Parameters:
+        I: The inferred input type.
+        S: The inferred sink type.
+
+    Args:
+        values: Exact integer or rational ascending coefficients, or a prepared array.
+        sink: The consumer receiving the header and then every leaf under the same work budget.
+        budget: The shared work allowance for preparation and computation.
+        options: The requested precision and subdivision settings.
+        complete_only: Raise unless all requested properties succeed.
+
+    Returns:
+        A completion receipt counting the leaves; partial writes before an error are not a complete certificate.
+
+    Raises:
+        PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
+    """
+    var p = _real_input(values, budget)
+    return real_roots_exact_to(p._core[], options, sink, budget, complete_only=complete_only)
+
+
+def real_root_cover_to[I: Iterable, S: DescartesRootSink](values: I, mut sink: S, *, max_steps: UInt64 = UInt64.MAX, options: NumericOptions = NumericOptions(), complete_only: Bool = False) raises PolyError -> RootStreamReceipt where _Kind[_Element[I]] >= 0:
+    """Stream the Descartes certificate of exact real roots leaf by leaf without collecting it.
+
+    Parameters:
+        I: The inferred input type.
+        S: The inferred sink type.
+
+    Args:
+        values: Exact integer or rational ascending coefficients, or a prepared array.
+        sink: The consumer receiving the header and then every leaf under the same work budget.
+        max_steps: The complete call's work allowance; defaults to UInt64.MAX.
+        options: The requested precision and subdivision settings.
+        complete_only: Raise unless all requested properties succeed.
+
+    Returns:
+        A completion receipt counting the leaves; partial writes before an error are not a complete certificate.
+
+    Raises:
+        PolyError: DOMAIN for incompatible input, UNSUPPORTED for an unavailable operation, or LIMIT/CAPACITY on resource limits.
+    """
+    var budget = Budget(max_steps)
+    return real_root_cover_to(values, sink, budget, options=options, complete_only=complete_only)
 
 
 def real_root_cover_to[I: Iterable, S: RealRootSink](values: I, mut sink: S, *, max_steps: UInt64 = UInt64.MAX, options: NumericOptions = NumericOptions(), complete_only: Bool = False) raises PolyError -> RootStreamReceipt where _Kind[_Element[I]] >= 0:
@@ -2818,7 +2890,7 @@ def real_root_checker[I: Iterable](values: I, mut budget: Budget, *, options: Nu
         return rebind_var[_RealChecker[_Kind[_Element[I]]]](_roots._ac._real_checker(_prepare(values, budget), options, budget))
     else:
         var p = _real_input(values, budget)
-        return rebind_var[_RealChecker[_Kind[_Element[I]]]](RealRootStreamChecker.from_dense(p._core[], options, budget))
+        return rebind_var[_RealChecker[_Kind[_Element[I]]]](DescartesStreamChecker.from_dense(p._core[], options, budget))
 
 
 def real_root_checker[I: Iterable](values: I, *, max_steps: UInt64 = UInt64.MAX, options: NumericOptions = NumericOptions()) raises PolyError -> _RealChecker[_Kind[_Element[I]]] where _Kind[_Element[I]] >= 0:
@@ -6196,7 +6268,7 @@ def complex_roots_checker[I: Iterable](values: I, *, max_steps: UInt64 = UInt64.
 
 comptime _RealCover[k: Int] = _roots.AlgebraicCover[k, False] if k >= 4 else _roots.RealCover[1]
 comptime _ComplexCover[k: Int] = _roots.AlgebraicCover[k, True] if k >= 4 else _roots.ComplexCover[k]
-comptime _RealChecker[k: Int] = _roots.AlgebraicRealRootChecker[k] if k >= 4 else RealRootStreamChecker
+comptime _RealChecker[k: Int] = _roots.AlgebraicRealRootChecker[k] if k >= 4 else DescartesStreamChecker
 comptime _ComplexChecker[k: Int] = _roots.AlgebraicComplexRootChecker[k] if k >= 4 else ComplexRootStreamChecker
 
 from . import _numeric_interop as _ni

@@ -3,8 +3,12 @@
 Use `poly.cad` to express real polynomial sign conditions, find witnesses, and decompose space from sparse coefficient arrays over integers, rationals, or AA.
 
 Every computational operation has a shared `Budget` overload and a convenience
-overload with `max_steps=`. Borrowed evidence is immutable; call `.copy()` on
-it when you need independent mutable data. For AA, decomposition and solving
+overload with `max_steps=`. Borrowed evidence is immutable. Decomposition and
+full-covering evidence now uses `CADFinalCertificate`; copies share immutable
+storage. Call its metadata methods instead of reading the old `.projection`,
+`.cells` or `.stacks` fields. `cad.cells` explicitly materializes absolute
+geometry, and `cad.sample` materializes only the requested satisfying path.
+Both costs are charged to their caller. For AA, decomposition and solving
 follow only the supplied coefficient values. The borrowed tree retains rational
 projection and local stack evidence, with one selected section per coefficient
 axis. Use `cad.check` or `cad.checker` to verify that restricted claim and its
@@ -12,6 +16,12 @@ binding to the original coefficients; ordinary full-space core checkers have a
 different coverage requirement. The
 [workflow tutorial](../tutorial/array-cad-workflows.md) explains the raw stream
 format and auxiliary axes.
+
+Decomposition and full covering default to Brown–McCallum projection reductions
+with Lazard lifting and the verified compact backend. `lazard=True` requests
+plain Lazard on that backend;
+`lazard=False` and restricted coordinate prefixes use checked legacy evidence.
+`solve` and the streaming API retain their existing implementations.
 
 Pass `fixed=[(axis, value), ...]` to restrict decomposition or solving to exact
 coordinate values. `decompose`, `solve`, `cover`, `decompose_to`, and `checker`

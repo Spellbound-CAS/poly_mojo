@@ -3,14 +3,15 @@ from .errors import Budget, PolyError, PolyErrorKind, _allocation, _sum
 from .coefficients import QQ, NoContext
 from .sparse import SparsePoly
 from .algebraic_types import RealAlgebraic, AlgebraicComparisonCertificate, _rational, _copy_real, _check_comparison
-from .algebraic import algebraic_sign
 from .algebraic_specialization import AlgebraicPolynomialEvaluation, _evaluate_sparse_cached, check_algebraic_evaluate_sparse
-from .cad_types import CADCell
-from ._algebraic import _NormalizationCache
+from .cad_types import CADCell, CADSignWitness
+from .dense import DensePoly
+from ._algebraic_filter import _child_frame, _installed, _rational_frame, _PointLevels, _try_point_levels, _try_point_zero, _try_point_divisor, _check_point_interval, _check_point_zero, _check_point_divisor
+from ._algebraic import _NormalizationCache, _comparison, _Frame
 
 
 def _cell(parent: Int, level: Int, position: Int, sample: RealAlgebraic, mut budget: Budget) raises PolyError -> CADCell:
-    return CADCell(parent, level, position, _copy_real(sample, budget), List[AlgebraicPolynomialEvaluation](), List[AlgebraicComparisonCertificate]())
+    return CADCell(parent, level, position, _copy_real(sample, budget), List[AlgebraicPolynomialEvaluation](), List[AlgebraicComparisonCertificate](), List[CADSignWitness]())
 
 
 def _coordinates(cells: List[CADCell], index: Int, variables: List[Int64], mut budget: Budget) raises PolyError -> Tuple[List[Tuple[Int64, RealAlgebraic]], Int]:
@@ -43,13 +44,17 @@ def _coordinates(cells: List[CADCell], index: Int, variables: List[Int64], mut b
 
 
 def _signs(inputs: List[SparsePoly[QQ]], point: List[Tuple[Int64, RealAlgebraic]], mut evaluations: List[AlgebraicPolynomialEvaluation], mut signs: List[AlgebraicComparisonCertificate], mut budget: Budget) raises PolyError:
+    var cache = _NormalizationCache()
+    _signs_cached(inputs, point, evaluations, signs, cache, budget)
+
+
+def _signs_cached(inputs: List[SparsePoly[QQ]], point: List[Tuple[Int64, RealAlgebraic]], mut evaluations: List[AlgebraicPolynomialEvaluation], mut signs: List[AlgebraicComparisonCertificate], mut cache: _NormalizationCache, mut budget: Budget) raises PolyError:
     _allocation[AlgebraicPolynomialEvaluation](len(inputs), budget)
     _allocation[AlgebraicComparisonCertificate](len(inputs), budget)
-    var cache = _NormalizationCache()
     for f in inputs:
         budget.charge(1)
         var evaluation = _evaluate_sparse_cached(f, point, cache, budget)
-        signs.append(algebraic_sign(evaluation.value, budget))
+        signs.append(_comparison(evaluation.value, _rational(QQ.zero(NoContext()), budget), budget))
         evaluations.append(evaluation^)
 
 
@@ -79,3 +84,169 @@ def _violation(cell: CADCell, masks: List[UInt8], mut budget: Budget) raises Pol
         if masks[i] & (UInt8(1) << UInt8(cell.signs[i].relation + 1)) == 0:
             return i
     return -1
+
+
+def _placeholder(relation: Int, mut budget: Budget) raises PolyError -> AlgebraicComparisonCertificate:
+    # The sign of a witnessed input; the witness, not this record, proves it.
+    var zero = _rational(QQ.zero(NoContext()), budget)
+    return AlgebraicComparisonCertificate(relation, _copy_real(zero, budget), zero^, DensePoly[QQ](0, NoContext()), DensePoly[QQ](0, NoContext()), DensePoly[QQ](0, NoContext()), None)
+
+
+struct _LazyFrame(Copyable, Movable):
+    """A terminal cell's frame, built only if an exact sign evaluation needs it."""
+    var parent: _Frame
+    var variable: Int64
+    var lifting: Optional[SparsePoly[QQ]]
+    var sample: RealAlgebraic
+
+    def __init__(out self, var parent: _Frame, variable: Int64, var lifting: Optional[SparsePoly[QQ]], var sample: RealAlgebraic):
+        self.parent = parent^
+        self.variable = variable
+        self.lifting = lifting^
+        self.sample = sample^
+
+
+def _vanishes_at_rational(f: SparsePoly[QQ], point: List[Tuple[Int64, RealAlgebraic]], mut budget: Budget) raises PolyError -> Bool:
+    # Whether f is zero at a point whose coordinates are all rational and
+    # assign every variable of f.
+    var total = QQ.zero(NoContext())
+    for term in f.terms:
+        budget.charge(1)
+        var value = term.coefficient.copy()
+        for pair in term.monomial.pairs:
+            var found = False
+            for entry in point:
+                if entry[0] == pair[0]:
+                    found = True
+                    for _ in range(Int(pair[1])):
+                        budget.charge(1)
+                        value = value.mul(entry[1].low, budget)
+                    break
+            if not found:
+                return False
+        total = total.add(value, budget)
+    return total.is_zero()
+
+
+def _signs_witnessed(inputs: List[SparsePoly[QQ]], point: List[Tuple[Int64, RealAlgebraic]], mut evaluations: List[AlgebraicPolynomialEvaluation], mut signs: List[AlgebraicComparisonCertificate], mut witnesses: List[CADSignWitness], mut cache: _NormalizationCache, mut budget: Budget, lazy: Optional[_LazyFrame] = None, sections: List[Int] = List[Int]()) raises PolyError:
+    var levels = _PointLevels(List[RealAlgebraic](), budget)
+    _signs_leveled(inputs, point, evaluations, signs, witnesses, cache, levels, budget, lazy, sections)
+
+
+def _signs_leveled(inputs: List[SparsePoly[QQ]], point: List[Tuple[Int64, RealAlgebraic]], mut evaluations: List[AlgebraicPolynomialEvaluation], mut signs: List[AlgebraicComparisonCertificate], mut witnesses: List[CADSignWitness], mut cache: _NormalizationCache, mut levels: _PointLevels, mut budget: Budget, lazy: Optional[_LazyFrame] = None, sections: List[Int] = List[Int]()) raises PolyError:
+    # As _signs_witnessed, with levels kept between calls: sibling cells share
+    # every coordinate but the last, and so its bisections.
+    var variables = List[Int64]()
+    var coordinates = List[RealAlgebraic]()
+    for entry in point:
+        variables.append(entry[0])
+        coordinates.append(_copy_real(entry[1], budget))
+    # The bisections of the point are the same for every input: share them.
+    levels.reset(coordinates, budget)
+    var built = False
+    for index in range(len(inputs)):
+        ref f = inputs[index]
+        budget.charge(1)
+        _allocation[CADSignWitness](1, budget)
+        # At a rational point every interval is exact and no zero or divisor
+        # proof applies, so a vanishing input reaches the exact evaluation.
+        # On a section that is a root of a basis member dividing the input,
+        # that member is the input's zero proof.
+        if index < len(sections) and sections[index] >= 0:
+            signs.append(_placeholder(0, budget))
+            witnesses.append(CADSignWitness(4, List[RealAlgebraic](), sections[index], List[DensePoly[QQ]]()))
+            continue
+        var vanishing = levels.exact and _vanishes_at_rational(f, point, budget)
+        # Intervals first, then zero; an interval cannot exclude a vanishing
+        # input and a zero proof cannot hold for another, so trying zero after
+        # two rounds instead of 24 finds the same witness sooner.
+        var interval: Optional[Tuple[List[RealAlgebraic], Int]] = None
+        if not vanishing:
+            interval = _try_point_levels(f, variables, levels, 0, 2, budget)
+        if interval:
+            var parts = interval.take()
+            signs.append(_placeholder(parts[1], budget))
+            witnesses.append(CADSignWitness(1, parts[0].copy(), -1, List[DensePoly[QQ]]()))
+            continue
+        var zero: Optional[Tuple[List[RealAlgebraic], Int, List[DensePoly[QQ]]]] = None
+        if not vanishing:
+            zero = _try_point_zero(f, variables, coordinates, 256, budget)
+        if zero:
+            var parts = zero.take()
+            signs.append(_placeholder(0, budget))
+            witnesses.append(CADSignWitness(2, parts[0].copy(), parts[1], parts[2].copy()))
+            continue
+        if not vanishing:
+            interval = _try_point_levels(f, variables, levels, 2, 24, budget)
+        if interval:
+            var parts = interval.take()
+            signs.append(_placeholder(parts[1], budget))
+            witnesses.append(CADSignWitness(1, parts[0].copy(), -1, List[DensePoly[QQ]]()))
+            continue
+        var divided: Optional[Tuple[List[RealAlgebraic], Int, List[DensePoly[QQ]]]] = None
+        if not vanishing:
+            divided = _try_point_divisor(f, variables, coordinates, 256, budget)
+        if divided:
+            var parts = divided.take()
+            signs.append(_placeholder(0, budget))
+            witnesses.append(CADSignWitness(3, parts[0].copy(), parts[1], parts[2].copy()))
+            continue
+        var narrow: Optional[Tuple[List[RealAlgebraic], Int]] = None
+        if not vanishing:
+            narrow = _try_point_levels(f, variables, levels, 24, 400, budget)
+        if narrow:
+            var parts = narrow.take()
+            signs.append(_placeholder(parts[1], budget))
+            witnesses.append(CADSignWitness(1, parts[0].copy(), -1, List[DensePoly[QQ]]()))
+            continue
+        if lazy and not built:
+            # The frame the eager path would have installed for this cell.
+            built = True
+            ref pending = lazy.value()
+            cache.frame = _installed(_child_frame(pending.parent, pending.variable, pending.lifting, pending.sample, budget, terminal=True), point, budget)
+        if levels.exact and not cache.frame:
+            # A rational generator: the direct evaluation is f over Q.
+            cache.frame = _rational_frame(point, budget)
+        var evaluation = _evaluate_sparse_cached(f, point, cache, budget)
+        signs.append(_comparison(evaluation.value, _rational(QQ.zero(NoContext()), budget), budget))
+        evaluations.append(evaluation^)
+        witnesses.append(CADSignWitness(0, List[RealAlgebraic](), -1, List[DensePoly[QQ]]()))
+
+
+def _check_cell_signs(inputs: List[SparsePoly[QQ]], point: List[Tuple[Int64, RealAlgebraic]], cell: CADCell, mut budget: Budget, divisors: List[List[Int]] = List[List[Int]]()) raises PolyError -> Bool:
+    if len(cell.witnesses) == 0:
+        return _check_signs(inputs, point, cell.evaluations, cell.signs, budget)
+    if len(cell.witnesses) != len(inputs) or len(cell.signs) != len(inputs) or len(cell.evaluations) > len(inputs):
+        return False
+    var variables = List[Int64]()
+    var coordinates = List[RealAlgebraic]()
+    for entry in point:
+        variables.append(entry[0])
+        coordinates.append(_copy_real(entry[1], budget))
+    var zero = _rational(QQ.zero(NoContext()), budget)
+    var cursor = 0
+    for i in range(len(inputs)):
+        budget.charge(1)
+        ref w = cell.witnesses[i]
+        var relation = cell.signs[i].relation
+        if w.kind == 0:
+            if cursor == len(cell.evaluations) or not check_algebraic_evaluate_sparse(inputs[i], point, cell.evaluations[cursor], budget) or not _check_comparison(cell.evaluations[cursor].value, zero, cell.signs[i], budget):
+                return False
+            cursor += 1
+        elif w.kind == 1:
+            if not _check_point_interval(inputs[i], variables, coordinates, w.point, relation, budget):
+                return False
+        elif w.kind == 2:
+            if relation != 0 or not _check_point_zero(inputs[i], variables, coordinates, w.point, w.primitive, w.representations, budget):
+                return False
+        elif w.kind == 3:
+            if relation != 0 or not _check_point_divisor(inputs[i], variables, coordinates, w.point, w.primitive, w.representations, budget):
+                return False
+        elif w.kind == 4:
+            # The checked stack's section is a root of basis member
+            # w.primitive, which divides the input exactly.
+            if relation != 0 or len(w.point) or len(w.representations) or i >= len(divisors) or w.primitive not in divisors[i]:
+                return False
+        else:
+            return False
+    return cursor == len(cell.evaluations)

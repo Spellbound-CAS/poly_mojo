@@ -1,0 +1,1879 @@
+"""Multi-modular number-theoretic transform products for ZZ and prime-field dense polynomials.
+
+Each product is computed modulo enough word-sized primes q = c * 2^32 + 1 to
+determine every exact coefficient, then reassembled by Garner's mixed-radix
+CRT. The transforms follow Harvey's lazy-reduction butterflies: residues stay
+below 2q between stages, twiddle factors use Shoup's precomputed quotients,
+and pointwise products use Montgomery reduction, whose factor 2^-64 is folded
+into the final scaling. The forward transform is decimation in frequency
+(natural order in, bit-reversed out) and the inverse is decimation in time
+(bit-reversed in, natural out), so no permutation pass is needed.
+
+Every choice depends only on operand lengths and coefficient sizes, and work
+is charged before it is done, so budgets stay deterministic.
+"""
+from .coefficient_buffer import _CoefficientView, _view
+from .coefficients import CoefficientRing, ZZ, QQ, ModInt, _mod_mul
+from .errors import Budget, PolyError, PolyErrorKind, _allocation, _charge_size, _product, _sum
+from apn_mojo import Integer, Rational, lcm
+from ._fntt import _faccumulate, _finverse, _fscaled, _fconvolve, _fconvolve_floats, _fcolumn, _fforward, _ftables, _fpoints, _ftransform_length, _ftransform, _fmultiply, _FTables, _FPRIMES, _FROOTS, _FPRIME_BITS, _float_digits
+from ._word_simd import _mul_high, _WORD_LANES
+
+comptime _PRIME_COUNT = 48
+comptime _PRIMES: Array[UInt64, _PRIME_COUNT] = [
+    4611685941117976577,
+    4611685692009873409,
+    4611685606110527489,
+    4611685318347718657,
+    4611685232448372737,
+    4611685219563470849,
+    4611685125074190337,
+    4611685090714451969,
+    4611685039174844417,
+    4611685021994975233,
+    4611684738527133697,
+    4611684691282493441,
+    4611684674102624257,
+    4611684609678114817,
+    4611684588203278337,
+    4611684274670665729,
+    4611684098577006593,
+    4611683789339361281,
+    4611683647605440513,
+    4611683643310473217,
+    4611683578885963777,
+    4611683557411127297,
+    4611683437152043009,
+    4611683282533220353,
+    4611683157979168769,
+    4611682913166032897,
+    4611682857331458049,
+    4611682702712635393,
+    4611682681237798913,
+    4611682591043485697,
+    4611682483669303297,
+    4611682165841723393,
+    4611682084237344769,
+    4611681955388325889,
+    4611681581726171137,
+    4611681491531857921,
+    4611681341208002561,
+    4611681302553296897,
+    4611681147934474241,
+    4611680937481076737,
+    4611680903121338369,
+    4611680877351534593,
+    4611680731322646529,
+    4611680580998791169,
+    4611680439264870401,
+    4611680374840360961,
+    4611680078487617537,
+    4611680074192650241,
+]
+"""Primes c * 2^32 + 1 between 2^61 and 2^62, largest first."""
+comptime _ROOTS: Array[UInt64, _PRIME_COUNT] = [
+    69433692538710738,
+    458164920477615602,
+    3318345213167893729,
+    1987246491706964068,
+    822924968455585315,
+    2469127682168071965,
+    1285830752081625251,
+    183752203409188909,
+    1921765219434798347,
+    1227545647024351629,
+    581778145267535569,
+    2333496873055744784,
+    1412740095042473410,
+    1744787301615277891,
+    1892334733857228946,
+    1097498912578000954,
+    4072886070187700477,
+    694260992632473271,
+    2937129682549285438,
+    3031671718196792365,
+    2814492735415149199,
+    2610097204125386037,
+    802260124231727687,
+    1364591620262808040,
+    3170439535044416886,
+    467562035637133407,
+    2897245213038952993,
+    3177353734570521344,
+    2441845749430210104,
+    4205508554796425389,
+    1706969373386532637,
+    3200581903816233914,
+    3174698838480727617,
+    4435658554110039189,
+    3435850728227909831,
+    3876497104351613006,
+    1723151487789990176,
+    233548603520891187,
+    4038448730184238371,
+    2955703765147922460,
+    2467354294034433290,
+    3761130333586122566,
+    4169086568370993452,
+    2726591661292192631,
+    4262110156144202909,
+    809397819001368147,
+    500353882891617265,
+    1504575058755676207,
+]
+"""For each prime, a root of unity of order 2^32."""
+comptime _PRIME_BITS = 61
+"""Every prime exceeds 2^61, so each contributes at least 61 bits of modulus."""
+comptime _MAX_LOG = 32
+"""The roots of unity bound transform lengths by 2^32."""
+
+
+@always_inline
+def _mulhi(a: UInt64, b: UInt64) -> UInt64:
+    return UInt64((UInt128(a) * UInt128(b)) >> 64)
+
+
+@always_inline
+def _shoup_quotient(w: UInt64, q: UInt64) -> UInt64:
+    """floor(w * 2^64 / q) for w < q."""
+    return UInt64((UInt128(w) << 64) // UInt128(q))
+
+
+@always_inline
+def _shoup(x: UInt64, w: UInt64, w_quotient: UInt64, q: UInt64) -> UInt64:
+    """x * w mod q in [0, 2q), for any x below 2^64 and w < q < 2^62."""
+    return x * w - _mulhi(x, w_quotient) * q
+
+
+@always_inline
+def _transform_quotient(x: UInt64, q: UInt64, reciprocal: UInt64) -> UInt64:
+    """floor(x * 2^64 / q) for x < q and 2^61 < q < 2^62, given reciprocal = floor(2^125 / q).
+
+    The estimate x * reciprocal / 2^61 falls short by less than two; the
+    remainder corrects it without a 128-bit division.
+    """
+    var estimate = UInt64((UInt128(x) * UInt128(reciprocal)) >> 61)
+    var remainder = (UInt128(x) << 64) - UInt128(estimate) * UInt128(q)
+    while remainder >= UInt128(q):
+        estimate += 1
+        remainder -= UInt128(q)
+    return estimate
+
+
+@always_inline
+def _reduce_2q(x: UInt64, q: UInt64) -> UInt64:
+    return x - q if x >= q else x
+
+
+def _montgomery_inverse(q: UInt64) -> UInt64:
+    """-q^-1 modulo 2^64 for odd q."""
+    var inverse = q  # correct to 3 bits; each Newton step doubles them
+    for _ in range(5):
+        inverse *= 2 - q * inverse
+    return UInt64(0) - inverse
+
+
+@always_inline
+def _redc(a: UInt64, b: UInt64, q: UInt64, q_inverse: UInt64) -> UInt64:
+    """a * b * 2^-64 mod q in [0, 2q), for a, b < 2q and q < 2^62."""
+    var t = UInt128(a) * UInt128(b)
+    var m = UInt64(t) * q_inverse
+    return UInt64((t + UInt128(m) * UInt128(q)) >> 64)
+
+
+def _inverse_word(a: UInt64, q: UInt64) -> UInt64:
+    """The inverse of a nonzero a < q modulo the prime q, by the extended Euclidean algorithm on words.
+
+    Requires q < 2^63, which every transform and float prime satisfies, so
+    that the Bezout cofactors, bounded by q in magnitude, fit in Int64.
+    """
+    debug_assert(q < UInt64(1) << 63, "modulus must be below 2^63")
+    var t = Int64(0)
+    var next_t = Int64(1)
+    var r = q
+    var next_r = a
+    while next_r != 0:
+        var quotient = r // next_r
+        var step = t - Int64(quotient) * next_t
+        t = next_t
+        next_t = step
+        var remainder = r - quotient * next_r
+        r = next_r
+        next_r = remainder
+    return UInt64(t + Int64(q)) if t < 0 else UInt64(t)
+
+
+def _power(a: UInt64, n: UInt64, q: UInt64) -> UInt64:
+    var base = a
+    var exponent = n
+    var result = UInt64(1)
+    while exponent:
+        if exponent & 1:
+            result = _mod_mul(result, base, q)
+        exponent >>= 1
+        if exponent:
+            base = _mod_mul(base, base, q)
+    return result
+
+
+struct _Tables(Movable):
+    """Twiddles of one prime and length: entry m + j holds w_2m^j (forward) or w_2m^-j (inverse)."""
+    var forward: List[UInt64]
+    var forward_quotients: List[UInt64]
+    var inverse: List[UInt64]
+    var inverse_quotients: List[UInt64]
+
+    def __init__(out self, q: UInt64, root: UInt64, n: Int):
+        self.forward = List[UInt64](length=n, fill=0)
+        self.forward_quotients = List[UInt64](length=n, fill=0)
+        self.inverse = List[UInt64](length=n, fill=0)
+        self.inverse_quotients = List[UInt64](length=n, fill=0)
+        if n < 2:
+            return
+        # The last stage holds w^j, j < n/2, for w of order n; every other stage
+        # takes a stride of it. Only these n/2 need Shoup quotients, without
+        # division: w^-j = q - w^(n/2 - j), and the quotient of q - x is
+        # 2^64 - 1 - the quotient of x.
+        var half = n // 2
+        var log = 0
+        while (1 << log) < n:
+            log += 1
+        var w = _power(root, UInt64(1) << UInt64(_MAX_LOG - log), q)
+        var step = _shoup_quotient(w, q)
+        var reciprocal = UInt64((UInt128(1) << 125) // UInt128(q))
+        var x = UInt64(1)
+        for j in range(half):
+            self.forward.unsafe_get(half + j) = x
+            self.forward_quotients.unsafe_get(half + j) = _transform_quotient(x, q, reciprocal)
+            x = _reduce_2q(_shoup(x, w, step, q), q)
+        self.inverse.unsafe_get(half) = 1
+        self.inverse_quotients.unsafe_get(half) = self.forward_quotients.unsafe_get(half)
+        for j in range(1, half):
+            self.inverse.unsafe_get(half + j) = q - self.forward.unsafe_get(n - j)
+            self.inverse_quotients.unsafe_get(half + j) = UInt64.MAX - self.forward_quotients.unsafe_get(n - j)
+        var m = half // 2
+        var stride = 2
+        while m >= 1:
+            for j in range(m):
+                self.forward.unsafe_get(m + j) = self.forward.unsafe_get(half + j * stride)
+                self.forward_quotients.unsafe_get(m + j) = self.forward_quotients.unsafe_get(half + j * stride)
+                self.inverse.unsafe_get(m + j) = self.inverse.unsafe_get(half + j * stride)
+                self.inverse_quotients.unsafe_get(m + j) = self.inverse_quotients.unsafe_get(half + j * stride)
+            m //= 2
+            stride *= 2
+
+
+
+@always_inline
+def _shoup_lanes[W: Int](x: SIMD[DType.uint64, W], w: SIMD[DType.uint64, W], quotient: SIMD[DType.uint64, W], q: SIMD[DType.uint64, W]) -> SIMD[DType.uint64, W]:
+    """Exact Shoup products in [0, 2q), for x < 2^64 and w < q < 2^62."""
+    comptime if W == 1:
+        return SIMD[DType.uint64, W](_shoup(x[0], w[0], quotient[0], q[0]))
+    else:
+        return x * w - _mul_high[W](x, quotient) * q
+
+
+@always_inline
+def _word_stage[inverse: Bool, W: Int](pa: Pointer[mut=True, UInt64, _], pw: Pointer[mut=False, UInt64, _], pq: Pointer[mut=False, UInt64, _], n: Int, m: Int, prime: UInt64):
+    """One NTT stage, W adjacent butterflies per iteration; m is a multiple of W."""
+    comptime Lane = SIMD[DType.uint64, W]
+    var q = Lane(prime)
+    var q2 = q + q
+    var start = 0
+    while start < n:
+        var j = 0
+        while j < m:
+            var left = pa.unsafe_offset(start + j)
+            var right = left.unsafe_offset(m)
+            var u = left.unsafe_load[width=W]()
+            var v = right.unsafe_load[width=W]()
+            var w = pw.unsafe_offset(m + j).unsafe_load[width=W]()
+            var quotient = pq.unsafe_offset(m + j).unsafe_load[width=W]()
+            comptime if inverse:
+                var t = _shoup_lanes[W](v, w, quotient, q)
+                var x = u + t
+                var y = u - t + q2
+                left.unsafe_store[width=W](x.ge(q2).select(x - q2, x))
+                right.unsafe_store[width=W](y.ge(q2).select(y - q2, y))
+            else:
+                var x = u + v
+                left.unsafe_store[width=W](x.ge(q2).select(x - q2, x))
+                right.unsafe_store[width=W](_shoup_lanes[W](u - v + q2, w, quotient, q))
+            j += W
+        start += 2 * m
+
+
+@always_inline
+def _word_stage_width[inverse: Bool](mut a: List[UInt64], w: List[UInt64], quotients: List[UInt64], m: Int, q: UInt64):
+    """Dispatch a power-of-two half-length to full or narrow SIMD lanes."""
+    var pa = a.unsafe_ptr()
+    var pw = w.unsafe_ptr()
+    var pq = quotients.unsafe_ptr()
+    if m >= _WORD_LANES:
+        _word_stage[inverse, _WORD_LANES](pa, pw, pq, len(a), m, q)
+    elif m == 4:
+        _word_stage[inverse, 4](pa, pw, pq, len(a), m, q)
+    elif m == 2:
+        _word_stage[inverse, 2](pa, pw, pq, len(a), m, q)
+    else:
+        _word_stage[inverse, 1](pa, pw, pq, len(a), m, q)
+
+
+def _forward[vectorized: Bool = True](mut a: List[UInt64], tables: _Tables, q: UInt64):
+    """Decimation in frequency; values below 2q in and out, output in bit-reversed order."""
+    var n = len(a)
+    var q2 = 2 * q
+    ref w = tables.forward
+    ref wq = tables.forward_quotients
+    var m = n // 2
+    while m >= 1:
+        comptime if vectorized:
+            _word_stage_width[False](a, w, wq, m, q)
+        else:
+            var start = 0
+            while start < n:
+                for j in range(m):
+                    var u = a.unsafe_get(start + j)
+                    var v = a.unsafe_get(start + j + m)
+                    var x = u + v
+                    a.unsafe_get(start + j) = x - q2 if x >= q2 else x
+                    a.unsafe_get(start + j + m) = _shoup(u - v + q2, w.unsafe_get(m + j), wq.unsafe_get(m + j), q)
+                start += 2 * m
+        m //= 2
+
+
+def _inverse[vectorized: Bool = True](mut a: List[UInt64], tables: _Tables, q: UInt64):
+    """Decimation in time without the 1/n factor; values below 2q in and out, bit-reversed input."""
+    var n = len(a)
+    var q2 = 2 * q
+    ref w = tables.inverse
+    ref wq = tables.inverse_quotients
+    var m = 1
+    while m < n:
+        comptime if vectorized:
+            _word_stage_width[True](a, w, wq, m, q)
+        else:
+            var start = 0
+            while start < n:
+                for j in range(m):
+                    var u = a.unsafe_get(start + j)
+                    var t = _shoup(a.unsafe_get(start + j + m), w.unsafe_get(m + j), wq.unsafe_get(m + j), q)
+                    var x = u + t
+                    var y = u - t + q2
+                    a.unsafe_get(start + j) = x - q2 if x >= q2 else x
+                    a.unsafe_get(start + j + m) = y - q2 if y >= q2 else y
+                start += 2 * m
+        m *= 2
+
+
+def _convolve(var a: List[UInt64], var b: List[UInt64], count: Int, square: Bool, index: Int, n: Int) -> List[UInt64]:
+    """The first `count` cyclic convolution coefficients modulo prime `index`, reduced below q.
+
+    Operands hold residues below 2q, zero-padded to the transform length n.
+    """
+    var primes = materialize[_PRIMES]()
+    var roots = materialize[_ROOTS]()
+    var q = primes[index]
+    var tables = _Tables(q, roots[index], n)
+    var q_inverse = _montgomery_inverse(q)
+    _forward(a, tables, q)
+    if not square:
+        _forward(b, tables, q)
+    if square:
+        for i in range(n):
+            var v = a.unsafe_get(i)
+            a.unsafe_get(i) = _redc(v, v, q, q_inverse)
+    else:
+        for i in range(n):
+            a.unsafe_get(i) = _redc(a.unsafe_get(i), b.unsafe_get(i), q, q_inverse)
+    _inverse(a, tables, q)
+    # Undo the Montgomery factor and divide by n: multiply by 2^64 / n.
+    var r = (UInt64(0) - q) % q
+    var scale = _mod_mul(r, _inverse_word(UInt64(n) % q, q), q)
+    var scale_quotient = _shoup_quotient(scale, q)
+    var result = List[UInt64](capacity=count)
+    for i in range(count):
+        result.append(_reduce_2q(_shoup(a.unsafe_get(i), scale, scale_quotient, q), q))
+    return result^
+
+
+def _transform_length(count: Int) -> Int:
+    var n = 1
+    while n < count:
+        n *= 2
+    return n
+
+
+def _charge_transforms(primes: Int, n: Int, square: Bool, mut budget: Budget) raises PolyError:
+    """Charge the tables, two or three transforms, and the pointwise pass of every prime."""
+    var log = 0
+    while (1 << log) < n:
+        log += 1
+    _allocation[UInt64](_product(6, n), budget)
+    var per_prime = _product(n, _sum(_product(2 if square else 3, log), 6))
+    _charge_size(_product(primes, per_prime), budget)
+
+
+@fieldwise_init
+struct _Garner(Movable):
+    """Mixed-radix CRT constants for the first k primes."""
+    var k: Int
+    var prefix_inverse: List[UInt64]
+    """(q_0 ... q_(i-1))^-1 mod q_i, and its Shoup quotient."""
+    var prefix_inverse_quotient: List[UInt64]
+    var residue: List[UInt64]
+    """Row i, column j < i: q_j mod q_i, and its Shoup quotient."""
+    var residue_quotient: List[UInt64]
+    var moduli: List[UInt64]
+    """The primes q_0 ... q_(k-1)."""
+
+
+def _moduli[F: Bool](k: Int) -> List[UInt64]:
+    """The first k primes of the integer table, or of the float table when F."""
+    var moduli = List[UInt64](capacity=k)
+    comptime if F:
+        var primes = materialize[_FPRIMES]()
+        for i in range(k):
+            moduli.append(primes[i])
+    else:
+        var primes = materialize[_PRIMES]()
+        for i in range(k):
+            moduli.append(primes[i])
+    return moduli^
+
+
+def _modular_convolve[F: Bool](var a: List[UInt64], var b: List[UInt64], count: Int, square: Bool, index: Int, n: Int) -> List[UInt64]:
+    """_convolve modulo prime `index` of the integer table, or _fconvolve of the float table when F."""
+    comptime if F:
+        return _fconvolve(a, b, count, square, index, n)
+    else:
+        return _convolve(a^, b^, count, square, index, n)
+
+
+def _garner[F: Bool = False](k: Int) -> _Garner:
+    var primes = _moduli[F](k)
+    var prefix_inverse = List[UInt64](length=k, fill=0)
+    var prefix_quotient = List[UInt64](length=k, fill=0)
+    var residue = List[UInt64](length=k * k, fill=0)
+    var residue_quotient = List[UInt64](length=k * k, fill=0)
+    for i in range(k):
+        var q = primes[i]
+        var prefix = UInt64(1)
+        for j in range(i):
+            var r = primes[j] % q
+            residue[i * k + j] = r
+            residue_quotient[i * k + j] = _shoup_quotient(r, q)
+            prefix = _mod_mul(prefix, r, q)
+        var inverse = _inverse_word(prefix, q)
+        prefix_inverse[i] = inverse
+        prefix_quotient[i] = _shoup_quotient(inverse, q)
+    return _Garner(k, prefix_inverse^, prefix_quotient^, residue^, residue_quotient^, primes^)
+
+
+def _digits(g: _Garner, residues: List[List[UInt64]], index: Int, mut digits: List[UInt64]):
+    """The mixed-radix digits v_i < q_i of the coefficient whose residues are residues[i][index]."""
+    for i in range(g.k):
+        var q = g.moduli[i]
+        # acc = v_0 + v_1 q_0 + ... + v_(i-1) q_0 ... q_(i-2) mod q_i, by Horner.
+        var acc = UInt64(0)
+        var j = i - 1
+        while j >= 0:
+            # Digits are below q_j < 2^62 < 2 q_i, so the sum stays below 3 q_i.
+            acc = _reduce_2q(_shoup(acc, g.residue[i * g.k + j], g.residue_quotient[i * g.k + j], q), q) + digits[j]
+            acc = _reduce_2q(_reduce_2q(acc, q), q)
+            j -= 1
+        var r = residues[i][index]
+        var difference = r - acc if r >= acc else r + q - acc
+        digits[i] = _reduce_2q(_shoup(difference, g.prefix_inverse[i], g.prefix_inverse_quotient[i], q), q)
+
+
+def _radix_limbs[F: Bool = False](k: Int) -> List[UInt64]:
+    """The product q_0 ... q_(k-1) in 64-bit limbs, least significant first."""
+    var primes = _moduli[F](k)
+    var limbs: List[UInt64] = [1]
+    for i in range(k):
+        _scale_add(limbs, primes[i], 0)
+    return limbs^
+
+
+@always_inline
+def _scale_add(mut limbs: List[UInt64], factor: UInt64, addend: UInt64):
+    var carry = UInt128(addend)
+    for l in range(len(limbs)):
+        var t = UInt128(limbs[l]) * UInt128(factor) + carry
+        limbs[l] = UInt64(t)
+        carry = t >> 64
+    if carry:
+        limbs.append(UInt64(carry))
+
+
+def _compare(a: List[UInt64], b: List[UInt64]) -> Int:
+    var n = max(len(a), len(b))
+    var l = n - 1
+    while l >= 0:
+        var x = a[l] if l < len(a) else UInt64(0)
+        var y = b[l] if l < len(b) else UInt64(0)
+        if x != y:
+            return 1 if x > y else -1
+        l -= 1
+    return 0
+
+
+def _subtract_from(m: List[UInt64], mut x: List[UInt64]):
+    """x = m - x in place, for x <= m."""
+    var borrow = UInt64(0)
+    for l in range(len(m)):
+        var a = m[l]
+        var b = x[l] if l < len(x) else UInt64(0)
+        var d = a - b - borrow
+        borrow = UInt64(1) if (a < b or (a == b and borrow == 1)) else UInt64(0)
+        if l < len(x):
+            x[l] = d
+        else:
+            x.append(d)
+
+
+def _subtract_in_place(mut x: List[UInt64], m: List[UInt64]):
+    """x = x - m in place, for m <= x."""
+    var borrow = UInt64(0)
+    for l in range(len(x)):
+        var a = x[l]
+        var b = m[l] if l < len(m) else UInt64(0)
+        x[l] = a - b - borrow
+        borrow = UInt64(1) if (a < b or (a == b and borrow == 1)) else UInt64(0)
+
+
+def _magnitude(value: Integer, mut limbs: List[UInt64]):
+    """Append the magnitude of value in 64-bit limbs, least significant first, read from its words."""
+    var small = value._inline_words()
+    var words = value._words_span(small)
+    var count = len(words)
+    for l in range(count // 2):
+        limbs.append(UInt64(words.unsafe_get(2 * l)) | (UInt64(words.unsafe_get(2 * l + 1)) << 32))
+    if count % 2:
+        limbs.append(UInt64(words.unsafe_get(count - 1)))
+
+
+def _residues_zz[C: CoefficientRing, F: Bool = False](values: _CoefficientView[C, _], k: Int, n: Int, mut budget: Budget) raises PolyError -> List[List[UInt64]]:
+    """Each coefficient modulo each of the first k primes, as residues below q, padded to n."""
+    var primes = _moduli[F](k)
+    # Read run by run: when every coefficient is a signed word, reduce it
+    # directly, with no limbs.
+    var words = List[Int64](capacity=len(values))
+    var sizes = List[Int](capacity=len(values))
+    var nonzero = 0
+    var i = 0
+    while i < len(values):
+        var run = values._run(i)
+        var stop = min(len(run), len(values) - i)
+        var j = 0
+        while j < stop:
+            ref c = rebind[ZZ](run[j])
+            if c.value.magnitude_bit_length() > 63:
+                break
+            try:
+                var v = c.value.to_native_exact[DType.int64]()
+                words.append(v)
+                sizes.append(c.size())
+                nonzero += 1 if v != 0 else 0
+            except:
+                break
+            j += 1
+        if j < stop:
+            break
+        i += stop
+    if len(words) == len(values):
+        # The same charges as the limb path: each coefficient's size, then
+        # one limb per nonzero word and prime.
+        for i in range(len(values)):
+            _charge_size(sizes.unsafe_get(i), budget)
+        _charge_size(_product(k, nonzero), budget)
+        var out = List[List[UInt64]](capacity=k)
+        for p in range(k):
+            var q = primes[p]
+            var one_quotient = _shoup_quotient(1, q)
+            var residues = List[UInt64](length=n, fill=0)
+            for i in range(len(values)):
+                var v = words.unsafe_get(i)
+                var r = _reduce_2q(_shoup(UInt64(v) if v >= 0 else UInt64(0) - UInt64(v), 1, one_quotient, q), q)
+                residues.unsafe_get(i) = (q - r if r else r) if v < 0 else r
+            out.append(residues^)
+        return out^
+    var limbs = List[UInt64]()
+    var offsets = List[Int](capacity=len(values) + 1)
+    var negative = List[Bool](capacity=len(values))
+    offsets.append(0)
+    for i in range(len(values)):
+        ref c = rebind[ZZ](values[i])
+        _charge_size(c.size(), budget)
+        _magnitude(c.value, limbs)
+        offsets.append(len(limbs))
+        negative.append(c.value.sign() < 0)
+    _charge_size(_product(k, len(limbs)), budget)
+    var longest = 0
+    for i in range(len(values)):
+        longest = max(longest, offsets[i + 1] - offsets[i])
+    var out = List[List[UInt64]](capacity=k)
+    var powers = List[UInt64](length=longest, fill=0)
+    for p in range(k):
+        var q = primes[p]
+        # A coefficient is sum l_j 2^(64 j): sum the limbs times 2^(64 j) mod q in
+        # 192 bits, a top word counting the 128-bit overflows, and reduce once.
+        var radix = UInt64(((UInt128(1) << 64) % UInt128(q)))
+        var x = UInt64(1)
+        for j in range(longest):
+            powers.unsafe_get(j) = x
+            x = _mod_mul(x, radix, q)
+        var radix_quotient = _shoup_quotient(radix, q)
+        var square = _mod_mul(radix, radix, q)
+        var square_quotient = _shoup_quotient(square, q)
+        var one_quotient = _shoup_quotient(1, q)
+        var residues = List[UInt64](length=n, fill=0)
+        for i in range(len(values)):
+            var start = offsets[i]
+            var end = offsets[i + 1]
+            var r: UInt64
+            if end - start <= 1:
+                r = _reduce_2q(_shoup(limbs.unsafe_get(start), 1, one_quotient, q), q) if end > start else UInt64(0)
+            else:
+                var acc = UInt128(0)
+                var top = UInt64(0)
+                for l in range(start, end):
+                    var t = acc + UInt128(limbs.unsafe_get(l)) * UInt128(powers.unsafe_get(l - start))
+                    top += UInt64(1) if t < acc else UInt64(0)
+                    acc = t
+                r = _reduce_2q(_reduce_2q(_shoup(UInt64(acc), 1, one_quotient, q), q) + _reduce_2q(_shoup(UInt64(acc >> 64), radix, radix_quotient, q), q), q)
+                if top:
+                    r = _reduce_2q(r + _reduce_2q(_shoup(top, square, square_quotient, q), q), q)
+            residues.unsafe_get(i) = (q - r if r else r) if negative[i] else r
+        out.append(residues^)
+    return out^
+
+
+def _bits_zz[C: CoefficientRing](values: _CoefficientView[C, _]) -> Int:
+    var bits = 0
+    for i in range(len(values)):
+        bits = max(bits, rebind[ZZ](values[i]).value.magnitude_bit_length())
+    return bits
+
+
+def _bit_length(n: Int) -> Int:
+    var bits = 0
+    while (1 << bits) <= n:
+        bits += 1
+    return bits
+
+
+def _ntt_zz[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], square: Bool, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """The exact product by multi-modular transforms or Kronecker segmentation, or None past the transform limits."""
+    var count = len(a) + len(b) - 1
+    var values = _zz_product_range[C](a, b, 0, count, square, budget)
+    if not values:
+        return None
+    var result = values.take()
+    while len(result) and result[len(result) - 1].is_zero():
+        _ = result.pop()
+    return result^
+
+
+comptime _FLOAT_PRIMES = 4
+"""Products whose coefficients fit this many float primes use the double-precision transforms."""
+
+
+def _zz_product_range[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, square: Bool, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """Coefficients lo ..< hi of a * b over ZZ, by the cheapest transform family that holds them."""
+    # |c_i| <= min(len) * max|a| * max|b|; the symmetric range needs one more bit.
+    var bits_a = _bits_zz(a)
+    var bits = bits_a + (bits_a if square else _bits_zz(b)) + _bit_length(min(len(a), len(b))) + 1
+    var n = _range_length(len(a), len(b), lo, hi)
+    var small = (bits + _FPRIME_BITS - 1) // _FPRIME_BITS
+    var k = (bits + _PRIME_BITS - 1) // _PRIME_BITS
+    # Segmentation packs wide digits into few float primes with a vectorized
+    # CRT: from three float primes up it is ahead of multi-modular CRT at
+    # every measured length and size.
+    if small >= 3 and n >= 16:
+        var segmented = _ks_range[C](a, b, lo, hi, square, budget)
+        if segmented:
+            return segmented^
+    if small <= _FLOAT_PRIMES and n >= 16 and n <= (1 << 30):
+        return _multimodular[C, True](a, b, lo, hi, small, _ftransform_length(max(hi, len(a) + len(b) - 1 - lo, 1)), square, budget)
+    if k > _PRIME_COUNT:
+        return _ks_range[C](a, b, lo, hi, square, budget)
+    if n > (1 << 30):
+        return None
+    return _multimodular[C, False](a, b, lo, hi, k, n, square, budget)
+
+
+def _multimodular[C: CoefficientRing, F: Bool](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, k: Int, n: Int, square: Bool, mut budget: Budget) raises PolyError -> List[C]:
+    """Coefficients lo ..< hi of a * b by k primes of one family and transforms of length n."""
+    _charge_transforms(k, n, square, budget)
+    _allocation[UInt64](_product(k, hi), budget)
+    var left = _residues_zz[C, F](a, k, n, budget)
+    var right = List[List[UInt64]]() if square else _residues_zz[C, F](b, k, n, budget)
+    var residues = List[List[UInt64]](capacity=k)
+    for p in range(k):
+        var x = List[UInt64]()
+        swap(x, left[p])
+        var y = List[UInt64]()
+        if not square:
+            swap(y, right[p])
+        var column = _modular_convolve[F](x^, y^, hi, square, p, n)
+        if lo:
+            var kept = List[UInt64](capacity=hi - lo)
+            for i in range(lo, hi):
+                kept.append(column[i])
+            residues.append(kept^)
+        else:
+            residues.append(column^)
+    return _reconstruct_zz[C, F](residues, k, hi - lo, budget)
+
+
+def _reconstruct_zz[C: CoefficientRing, F: Bool = False](residues: List[List[UInt64]], k: Int, count: Int, mut budget: Budget) raises PolyError -> List[C]:
+    """The symmetric CRT representatives, as ZZ values, of the first `count` residue columns modulo the first k primes."""
+    _charge_size(_product(count, _product(k, k)), budget)
+    _allocation[C](count, budget)
+    var g = _garner[F](k)
+    var result = List[C](capacity=count)
+    var digits = List[UInt64](length=k, fill=0)
+    var bytes = List[UInt8](length=8 * (k + 1), fill=0)
+    if k <= 2:
+        # Values below q_0 q_1 < 2^124 fit one 128-bit word.
+        var modulus = UInt128(g.moduli[0]) * (UInt128(g.moduli[1]) if k == 2 else UInt128(1))
+        var half = modulus >> 1
+        for i in range(count):
+            var x = UInt128(residues[0][i])
+            if k == 2:
+                _digits(g, residues, i, digits)
+                x = UInt128(digits[0]) + UInt128(digits[1]) * UInt128(g.moduli[0])
+            var negative = x > half
+            if negative:
+                x = modulus - x
+            result.append(rebind_var[C](ZZ(_integer_128(x, negative, bytes))))
+        return result^
+    var modulus = _radix_limbs[F](k)
+    var half = modulus.copy()
+    var low = UInt64(0)
+    var l = len(half) - 1
+    while l >= 0:
+        var next_low = half[l] & 1
+        half[l] = (half[l] >> 1) | (low << 63)
+        low = next_low
+        l -= 1
+    # Explicit CRT: x = sum y_i (M / q_i) - t M with y_i = r_i (M / q_i)^-1 mod q_i
+    # and t = floor(sum y_i / q_i). A floating-point estimate of the sum, taken
+    # slightly low, gives t or t - 1, and one subtraction of M corrects the latter.
+    var size = len(modulus)
+    var cofactors = List[List[UInt64]](capacity=k)
+    var inverses = List[UInt64](capacity=k)
+    var inverse_quotients = List[UInt64](capacity=k)
+    var reciprocals = List[Float64](capacity=k)
+    for i in range(k):
+        var q = g.moduli[i]
+        var cofactor: List[UInt64] = [1]
+        for j in range(k):
+            if j != i:
+                _scale_add(cofactor, g.moduli[j], 0)
+        cofactor.resize(size, 0)
+        var residue = UInt64(0)
+        var l = size - 1
+        while l >= 0:
+            residue = UInt64(((UInt128(residue) << 64) | UInt128(cofactor[l])) % UInt128(q))
+            l -= 1
+        var inverse = _inverse_word(residue, q)
+        cofactors.append(cofactor^)
+        inverses.append(inverse)
+        inverse_quotients.append(_shoup_quotient(inverse, q))
+        reciprocals.append(1.0 / Float64(q))
+    # Column-major cofactor limbs: the sum for one limb position has no carry chain
+    # between primes, only a 192-bit accumulator.
+    var columns = List[UInt64](length=size * k, fill=0)
+    for j in range(k):
+        for l in range(size):
+            columns[l * k + j] = cofactors[j][l]
+    var ys = List[UInt64](length=k, fill=0)
+    var x = List[UInt64](length=size + 1, fill=0)
+    for i in range(count):
+        var estimate = Float64(0)
+        for j in range(k):
+            var q = g.moduli[j]
+            var y = _reduce_2q(_shoup(residues[j].unsafe_get(i), inverses[j], inverse_quotients[j], q), q)
+            estimate += Float64(y) * reciprocals[j]
+            ys.unsafe_get(j) = y
+        var acc = UInt128(0)
+        for l in range(size):
+            var top = UInt64(0)
+            var row = l * k
+            for j in range(k):
+                var t = acc + UInt128(columns.unsafe_get(row + j)) * UInt128(ys.unsafe_get(j))
+                top += UInt64(1) if t < acc else UInt64(0)
+                acc = t
+            x.unsafe_get(l) = UInt64(acc)
+            acc = (UInt128(top) << 64) | (acc >> 64)
+        x.unsafe_get(size) = UInt64(acc)
+        var multiple = UInt64(estimate - 1e-6) if estimate > 1e-6 else UInt64(0)
+        var carry = UInt128(0)
+        var borrow = UInt64(0)
+        for l in range(size + 1):
+            var t = UInt128(modulus[l] if l < size else UInt64(0)) * UInt128(multiple) + carry
+            carry = t >> 64
+            var a = x.unsafe_get(l)
+            var b = UInt64(t)
+            x.unsafe_get(l) = a - b - borrow
+            borrow = UInt64(1) if (a < b or (a == b and borrow == 1)) else UInt64(0)
+        if _compare(x, modulus) >= 0:
+            _subtract_in_place(x, modulus)
+        while len(x) > size:
+            _ = x.pop()
+        var negative = _compare(x, half) > 0
+        if negative:
+            _subtract_from(modulus, x)
+        var used = len(x)
+        while used > 1 and x[used - 1] == 0:
+            used -= 1
+        result.append(rebind_var[C](ZZ(_integer(x, used, negative, bytes))))
+        x.resize(size + 1, 0)
+    return result^
+
+
+def _integer_128(x: UInt128, negative: Bool, mut bytes: List[UInt8]) -> Integer:
+    """The integer with magnitude x and the given sign, inline when it fits a word."""
+    var lo = UInt64(x)
+    var hi = UInt64(x >> 64)
+    if hi == 0:
+        if lo <= UInt64(Int64.MAX):
+            return Integer(-Int64(lo) if negative else Int64(lo))
+        if not negative:
+            return Integer(lo)
+    comptime for shift in range(8):
+        bytes[shift] = UInt8((lo >> UInt64(8 * shift)) & 0xFF)
+        bytes[8 + shift] = UInt8((hi >> UInt64(8 * shift)) & 0xFF)
+    return Integer.from_bytes(Span(bytes)[:16], negative=negative)
+
+
+def _integer(limbs: List[UInt64], used: Int, negative: Bool, mut bytes: List[UInt8]) -> Integer:
+    """The integer with magnitude limbs[0 ..< used] and the given sign, copied straight from the limbs' words (`bytes` is unused)."""
+    if used == 1:
+        var m = limbs[0]
+        if m <= UInt64(Int64.MAX):
+            return Integer(-Int64(m) if negative else Int64(m))
+        if not negative:
+            return Integer(m)
+    # Little-endian 64-bit limbs are the integer's 32-bit words in order.
+    var words = Span[UInt32, origin_of(limbs)](unsafe_ptr=limbs.unsafe_ptr().unsafe_bitcast[UInt32](), length=2 * used)
+    try:
+        return Integer._from_span(words, negative)
+    except:
+        return Integer(0)
+
+
+def _prime_index(p: UInt64) -> Int:
+    """The table index of p when p is one of the transform primes, otherwise -1."""
+    var primes = materialize[_PRIMES]()
+    for i in range(_PRIME_COUNT):
+        if primes[i] == p:
+            return i
+    return -1
+
+
+def _modular_product(a: List[UInt64], b: List[UInt64], count: Int, p: UInt64, square: Bool, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The first `count` coefficients of a * b modulo a prime p < 2^62, for nonempty residue lists below p.
+
+    A transform prime is its own single modulus; any other p combines up to
+    three transform primes by Garner's CRT and reduces the result.
+    """
+    var primes = materialize[_PRIMES]()
+    var la = min(len(a), count)
+    var lb = la if square else min(len(b), count)
+    var full = la + lb - 1
+    var n = _transform_length(full)
+    var index = _prime_index(p)
+    var k = 1
+    if index < 0:
+        var bits = 2 * _bit_length(Int(p - 1)) + _bit_length(min(la, lb))
+        var small = (bits + _FPRIME_BITS - 1) // _FPRIME_BITS
+        if small <= _FLOAT_PRIMES and n >= 16:
+            return _float_modular_product(a, b, count, p, square, la, lb, small, _ftransform_length(full), budget)
+        k = (bits + _PRIME_BITS - 1) // _PRIME_BITS
+    _charge_transforms(k, n, square, budget)
+    _allocation[UInt64](_product(k, full), budget)
+    var out = min(count, full)
+    var residues = List[List[UInt64]](capacity=k)
+    for j in range(k):
+        # Residues below p < 2^62 are already below 2q for every q > 2^61.
+        var x = List[UInt64](length=n, fill=0)
+        for i in range(la):
+            x[i] = a[i]
+        var y = List[UInt64]()
+        if not square:
+            y = List[UInt64](length=n, fill=0)
+            for i in range(lb):
+                y[i] = b[i]
+        residues.append(_convolve(x^, y^, out, square, index if index >= 0 else j, n))
+    if index >= 0:
+        var single = List[UInt64]()
+        swap(single, residues[0])
+        single.resize(count, 0)
+        return single^
+    _charge_size(_product(out, _product(k, k)), budget)
+    var g = _garner(k)
+    # x mod p = sum v_i (q_0 ... q_(i-1) mod p), all by Shoup products: each
+    # term is below 2p, with no division per coefficient.
+    var one_p = _shoup_quotient(1, p)
+    var weights = List[UInt64](capacity=k)
+    var weight_quotients = List[UInt64](capacity=k)
+    var w = UInt64(1)
+    for i in range(k):
+        weights.append(w)
+        weight_quotients.append(_shoup_quotient(w, p))
+        w = _mod_mul(w, primes[i] % p, p)
+    var digits = List[UInt64](length=k, fill=0)
+    var result = List[UInt64](length=count, fill=0)
+    for i in range(out):
+        var value: UInt64
+        if k > 1:
+            _digits(g, residues, i, digits)
+            value = _reduce_2q(_shoup(digits[0], 1, one_p, p), p)
+            for j in range(1, k):
+                value = _reduce_2q(value + _reduce_2q(_shoup(digits[j], weights[j], weight_quotients[j], p), p), p)
+        else:
+            value = _reduce_2q(_shoup(residues[0][i], 1, one_p, p), p)
+        result[i] = value
+    return result^
+
+
+def _float_modular_product(a: List[UInt64], b: List[UInt64], count: Int, p: UInt64, square: Bool, la: Int, lb: Int, k: Int, n: Int, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """_modular_product by k float primes: Garner's CRT of the exact nonnegative convolution, reduced modulo p."""
+    var full = la + lb - 1
+    _charge_transforms(k, n, square, budget)
+    _allocation[UInt64](_product(k, full), budget)
+    var out = min(count, full)
+    var moduli = _moduli[True](k)
+    var residues = List[List[UInt64]](capacity=k)
+    for j in range(k):
+        var q = moduli[j]
+        if p <= moduli[k - 1] and len(a) == la and (square or len(b) == lb):
+            # Residues below p are already below every float prime.
+            residues.append(_fconvolve(a, b, out, square, j, n))
+            continue
+        var one_quotient = _shoup_quotient(1, q)
+        var x = List[UInt64](capacity=la)
+        for i in range(la):
+            x.append(_reduce_2q(_shoup(a[i], 1, one_quotient, q), q))
+        var y = List[UInt64]()
+        if not square:
+            y.reserve(lb)
+            for i in range(lb):
+                y.append(_reduce_2q(_shoup(b[i], 1, one_quotient, q), q))
+        residues.append(_fconvolve(x, y, out, square, j, n))
+    return _float_residues_mod(residues, moduli, count, out, p, k, budget)
+
+
+def _float_residues_mod(residues: List[List[UInt64]], moduli: List[UInt64], count: Int, filled: Int, p: UInt64, k: Int, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The first `count` values modulo p of the integers with these residues
+    modulo the first k float primes, by Garner's CRT; zeros past `filled`."""
+    _charge_size(_product(filled, _product(k, k)), budget)
+    # x mod p = sum v_i (q_0 ... q_(i-1) mod p), all by Shoup products: digits
+    # below 2^50 reduce by one, and each term is below 2p.
+    var one_p = _shoup_quotient(1, p)
+    var weights = List[UInt64](capacity=k)
+    var weight_quotients = List[UInt64](capacity=k)
+    var w = UInt64(1)
+    for i in range(k):
+        weights.append(w)
+        weight_quotients.append(_shoup_quotient(w, p))
+        w = _mod_mul(w, moduli[i] % p, p)
+    var result = List[UInt64](length=count, fill=0)
+    if k == 1:
+        ref column = residues[0]
+        for i in range(filled):
+            result.unsafe_get(i) = _reduce_2q(_shoup(column.unsafe_get(i), 1, one_p, p), p)
+        return result^
+    # Every point's mixed-radix digits at once, eight lanes wide.
+    var all_digits = List[UInt64](length=k * filled, fill=0)
+    if k == 2:
+        _float_digits[2](residues, moduli, all_digits)
+    elif k == 3:
+        _float_digits[3](residues, moduli, all_digits)
+    else:
+        _float_digits[4](residues, moduli, all_digits)
+    var d = all_digits.unsafe_ptr()
+    for i in range(filled):
+        var value = _reduce_2q(_shoup(d.unsafe_offset(i).unsafe_load(), 1, one_p, p), p)
+        for j in range(1, k):
+            value = _reduce_2q(value + _reduce_2q(_shoup(d.unsafe_offset(j * filled + i).unsafe_load(), weights[j], weight_quotients[j], p), p), p)
+        result.unsafe_get(i) = value
+    return result^
+
+
+def _float_primes_for(p: UInt64, terms: Int) -> Int:
+    """Float primes whose product holds sums of `terms` products of residues
+    below p, or 0 past _FLOAT_PRIMES."""
+    var bits = 2 * _bit_length(Int(p - 1)) + _bit_length(terms)
+    var k = (bits + _FPRIME_BITS - 1) // _FPRIME_BITS
+    return k if k <= _FLOAT_PRIMES else 0
+
+
+def _float_kept(values: List[UInt64], k: Int, n: Int) -> List[List[Float64]]:
+    """Forward transforms at n points, modulo each of the first k float
+    primes, of residues below every one of them."""
+    var primes = materialize[_FPRIMES]()
+    var out = List[List[Float64]](capacity=k)
+    for j in range(k):
+        out.append(_ftransform(values, _ftables(j, n), Float64(primes[j]), n))
+    return out^
+
+
+def _float_accumulate(mut sums: List[List[Float64]], values: List[UInt64], kept: List[List[Float64]], mut budget: Budget) raises PolyError:
+    """sums += the transforms of values times the kept transforms, modulo
+    each float prime, for residues of values below every one of them."""
+    var primes = materialize[_FPRIMES]()
+    var n = len(kept[0])
+    _charge_transforms(len(kept), n, True, budget)
+    for j in range(len(kept)):
+        var tables = _ftables(j, n)
+        var prime = Float64(primes[j])
+        _faccumulate(sums[j], _ftransform(values, tables, prime, n), kept[j], prime)
+
+
+def _float_sum_mod(var sums: List[List[Float64]], count: Int, p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The first `count` coefficients modulo p of the exact nonnegative
+    convolution sum accumulated in sums, below the float primes' product."""
+    var primes = materialize[_FPRIMES]()
+    var k = len(sums)
+    var n = len(sums[0])
+    _charge_transforms(k, n, True, budget)
+    _allocation[UInt64](_product(k, count), budget)
+    var residues = List[List[UInt64]](capacity=k)
+    for j in range(k):
+        var prime = Float64(primes[j])
+        _finverse(sums[j], _ftables(j, n), prime)
+        residues.append(_fscaled(sums[j], 0, count, prime))
+    return _float_residues_mod(residues, _moduli[True](k), count, count, p, k, budget)
+
+
+def _ntt_modular[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], square: Bool, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """The product over GF(p) by transforms modulo one to three word primes."""
+    var count = len(a) + len(b) - 1
+    if _transform_length(count) > (1 << 30):
+        return None
+    ref lead = rebind[ModInt](a[0])
+    var p = lead.modulus
+    var x = List[UInt64](capacity=len(a))
+    for i in range(len(a)):
+        x.append(rebind[ModInt](a[i]).value)
+    var y = List[UInt64]()
+    if not square:
+        y.reserve(len(b))
+        for i in range(len(b)):
+            y.append(rebind[ModInt](b[i]).value)
+    # A square ignores its second operand.
+    var values = _modular_product(x, y, count, p, square, budget)
+    _allocation[C](count, budget)
+    var result = List[C](capacity=count)
+    for i in range(count):
+        result.append(rebind_var[C](lead._with_residue(values[i])))
+    while len(result) and result[len(result) - 1].is_zero():
+        _ = result.pop()
+    return result^
+
+
+struct _Spectrum(Movable):
+    """Forward transforms of one operand, one per prime, in the convolver's family."""
+    var ints: List[List[UInt64]]
+    var floats: List[List[Float64]]
+
+    def __init__(out self):
+        self.ints = List[List[UInt64]]()
+        self.floats = List[List[Float64]]()
+
+
+struct _Convolver(Movable):
+    """Cyclic convolutions of length n modulo a prime p < 2^62 that keep their operands' transforms.
+
+    A transform prime is its own modulus; any other p uses enough primes for
+    sums of n products below p^2, then Garner's CRT: float primes when at most
+    _FLOAT_PRIMES of them suffice and n >= 16, integer primes otherwise.
+    """
+    var n: Int
+    var p: UInt64
+    var floating: Bool
+    var indices: List[Int]
+    var tables: List[_Tables]
+    var float_tables: List[_FTables]
+    var garner: _Garner
+    var weights: List[UInt64]
+    """(q_0 ... q_(i-1)) mod p."""
+
+    def __init__(out self, p: UInt64, n: Int, mut budget: Budget) raises PolyError:
+        var primes = materialize[_PRIMES]()
+        var roots = materialize[_ROOTS]()
+        self.n = n
+        self.p = p
+        self.floating = False
+        self.indices = List[Int]()
+        var index = _prime_index(p)
+        if index >= 0:
+            self.indices.append(index)
+        else:
+            var bits = 2 * _bit_length(Int(p - 1)) + _bit_length(n)
+            var small = (bits + _FPRIME_BITS - 1) // _FPRIME_BITS
+            self.floating = small <= _FLOAT_PRIMES and n >= 16
+            for j in range(small if self.floating else (bits + _PRIME_BITS - 1) // _PRIME_BITS):
+                self.indices.append(j)
+        var k = len(self.indices)
+        _allocation[UInt64](_product(4 * k, n), budget)
+        _charge_size(_product(k, n), budget)
+        self.tables = List[_Tables]()
+        self.float_tables = List[_FTables]()
+        var moduli = List[UInt64](capacity=k)
+        if self.floating:
+            var fprimes = materialize[_FPRIMES]()
+            var froots = materialize[_FROOTS]()
+            for j in self.indices:
+                self.float_tables.append(_FTables(fprimes[j], froots[j], n))
+                moduli.append(fprimes[j])
+            self.garner = _garner[True](k)
+        else:
+            for j in self.indices:
+                self.tables.append(_Tables(primes[j], roots[j], n))
+                moduli.append(primes[j])
+            self.garner = _garner(k)
+        self.weights = List[UInt64](capacity=k)
+        var w = UInt64(1)
+        for j in range(k):
+            self.weights.append(w)
+            w = _mod_mul(w, moduli[j] % p, p)
+
+    def transform(self, values: List[UInt64], mut budget: Budget) raises PolyError -> _Spectrum:
+        """The forward transforms, one per prime, of residues below p (at most n of them)."""
+        var log = _bit_length(self.n)
+        _charge_size(_product(len(self.indices), _product(self.n, log)), budget)
+        _allocation[UInt64](_product(len(self.indices), self.n), budget)
+        var out = _Spectrum()
+        if self.floating:
+            var fprimes = materialize[_FPRIMES]()
+            for j in range(len(self.indices)):
+                var q = fprimes[self.indices[j]]
+                var one_quotient = _shoup_quotient(1, q)
+                var x = List[UInt64](capacity=len(values))
+                for i in range(len(values)):
+                    x.append(_reduce_2q(_shoup(values[i], 1, one_quotient, q), q))
+                out.floats.append(_ftransform(x, self.float_tables[j], Float64(q), self.n))
+            return out^
+        var primes = materialize[_PRIMES]()
+        for j in range(len(self.indices)):
+            # Residues below p < 2^62 are already below 2q for every q > 2^61.
+            var x = List[UInt64](length=self.n, fill=0)
+            for i in range(len(values)):
+                x[i] = values[i]
+            _forward(x, self.tables[j], primes[self.indices[j]])
+            out.ints.append(x^)
+        return out^
+
+    def multiply(self, a: _Spectrum, b: _Spectrum, count: Int, mut budget: Budget) raises PolyError -> List[UInt64]:
+        """The first `count` cyclic convolution coefficients of two transforms, reduced modulo p."""
+        var primes = materialize[_PRIMES]()
+        var k = len(self.indices)
+        var log = _bit_length(self.n)
+        _charge_size(_product(k, _product(self.n, log + 2)), budget)
+        _allocation[UInt64](_product(k, self.n), budget)
+        var residues = List[List[UInt64]](capacity=k)
+        if self.floating:
+            var fprimes = materialize[_FPRIMES]()
+            for j in range(k):
+                residues.append(_fmultiply(a.floats[j], b.floats[j], self.float_tables[j], Float64(fprimes[self.indices[j]]), count))
+        else:
+            for j in range(k):
+                var q = primes[self.indices[j]]
+                var q_inverse = _montgomery_inverse(q)
+                var x = List[UInt64](length=self.n, fill=0)
+                for i in range(self.n):
+                    x.unsafe_get(i) = _redc(a.ints[j].unsafe_get(i), b.ints[j].unsafe_get(i), q, q_inverse)
+                _inverse(x, self.tables[j], q)
+                var r = (UInt64(0) - q) % q
+                var scale = _mod_mul(r, _inverse_word(UInt64(self.n) % q, q), q)
+                var scale_quotient = _shoup_quotient(scale, q)
+                for i in range(count):
+                    x.unsafe_get(i) = _reduce_2q(_shoup(x.unsafe_get(i), scale, scale_quotient, q), q)
+                x.resize(count, 0)
+                residues.append(x^)
+            if k == 1 and primes[self.indices[0]] == self.p:
+                var single = List[UInt64]()
+                swap(single, residues[0])
+                return single^
+        _charge_size(_product(count, _product(k, k)), budget)
+        var digits = List[UInt64](length=k, fill=0)
+        var result = List[UInt64](length=count, fill=0)
+        # The same Shoup-product combine as _modular_product, with no division per coefficient.
+        var p = self.p
+        var one_p = _shoup_quotient(1, p)
+        var weight_quotients = List[UInt64](capacity=k)
+        for j in range(k):
+            weight_quotients.append(_shoup_quotient(self.weights[j], p))
+        for i in range(count):
+            var value: UInt64
+            if k > 1:
+                _digits(self.garner, residues, i, digits)
+                value = _reduce_2q(_shoup(digits[0], 1, one_p, p), p)
+                for j in range(1, k):
+                    value = _reduce_2q(value + _reduce_2q(_shoup(digits[j], self.weights[j], weight_quotients[j], p), p), p)
+            else:
+                value = _reduce_2q(_shoup(residues[0][i], 1, one_p, p), p)
+            result[i] = value
+        return result^
+
+
+comptime _NEWTON_SCHOOLBOOK = 64
+"""Below this precision, series inversion steps use schoolbook products."""
+
+
+def _low_product(a: List[UInt64], b: List[UInt64], lo: Int, hi: Int, p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """Coefficients lo ..< hi of a * b modulo p, by schoolbook."""
+    _charge_size(_product(hi - lo, min(len(a), hi)), budget)
+    var result = List[UInt64](capacity=hi - lo)
+    for c in range(lo, hi):
+        var acc = UInt128(0)
+        for i in range(max(0, c - len(b) + 1), min(len(a), c + 1)):
+            acc += UInt128(a[i]) * UInt128(b[c - i])
+            if acc >= UInt128(1) << 126:
+                acc %= UInt128(p)
+        result.append(UInt64(acc % UInt128(p)))
+    return result^
+
+
+def _series_inverse(b: List[UInt64], m: Int, p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The inverse of the power series b (b[0] invertible) modulo x^m and p, by Newton iteration.
+
+    Each step from precision k to k2 <= 2k needs e = b * inverse modulo x^k2,
+    which equals 1 + x^k d; a cyclic convolution of length n >= k2 gives its
+    coefficients k ..< k2 intact, since the wrapped part lands below k. The
+    correction -inverse * d modulo x^(k2 - k) reuses the inverse's transform.
+    """
+    var inverse: List[UInt64] = [_inverse_word(b[0], p)]
+    var k = 1
+    while k < m:
+        budget.charge(1)
+        var k2 = min(2 * k, m)
+        var head = List[UInt64](capacity=k2)
+        for i in range(min(k2, len(b))):
+            head.append(b[i])
+        var d: List[UInt64]
+        var convolver = Optional[_Convolver](None)
+        var inverse_transform = _Spectrum()
+        if k2 <= _NEWTON_SCHOOLBOOK:
+            d = _low_product(head, inverse, k, k2, p, budget)
+        else:
+            convolver = _Convolver(p, _transform_length(k2), budget)
+            inverse_transform = convolver.value().transform(inverse, budget)
+            var e = convolver.value().multiply(convolver.value().transform(head, budget), inverse_transform, k2, budget)
+            d = List[UInt64](capacity=k2 - k)
+            for i in range(k, k2):
+                d.append(e[i])
+        var allzero = True
+        for v in d:
+            if v:
+                allzero = False
+                break
+        if allzero:
+            inverse.resize(k2, 0)
+        else:
+            var t: List[UInt64]
+            if k2 <= _NEWTON_SCHOOLBOOK:
+                t = _low_product(inverse, d, 0, k2 - k, p, budget)
+            else:
+                # inverse * d has length k2 - 1 < n: no wrap.
+                t = convolver.value().multiply(convolver.value().transform(d, budget), inverse_transform, k2 - k, budget)
+            for i in range(k2 - k):
+                inverse.append(p - t[i] if t[i] else UInt64(0))
+        k = k2
+    return inverse^
+
+
+def _quotient_mod(a: List[UInt64], b: List[UInt64], p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """The quotient of the division with remainder of a by b modulo p, for len(a) >= len(b) and a unit leading coefficient."""
+    var m = len(a) - len(b) + 1
+    var a_rev = List[UInt64](capacity=m)
+    for i in range(m):
+        a_rev.append(a[len(a) - 1 - i])
+    var b_rev = List[UInt64](capacity=min(m, len(b)))
+    for i in range(min(m, len(b))):
+        b_rev.append(b[len(b) - 1 - i])
+    var inverse = _series_inverse(b_rev, m, p, budget)
+    var q_rev = _modular_product(a_rev, inverse, m, p, False, budget)
+    var q = List[UInt64](capacity=m)
+    for i in range(m):
+        q.append(q_rev[m - 1 - i])
+    return q^
+
+
+def _equal_mod(a: List[UInt64], q: List[UInt64], b: List[UInt64], p: UInt64, mut budget: Budget) raises PolyError -> Bool:
+    """Whether q * b == a modulo p, for q the quotient of a divided by b with remainder.
+
+    q * b already agrees with a from degree len(b) - 1 up, so a remainder of
+    lower degree is zero exactly when q * b and a agree modulo x^n - 1 for
+    any n >= len(b) - 1: a cyclic convolution of half the full length.
+    """
+    var n = _transform_length(max(len(q), len(b)))
+    var convolver = _Convolver(p, n, budget)
+    var wrapped = convolver.multiply(convolver.transform(q, budget), convolver.transform(b, budget), n, budget)
+    var folded = List[UInt64](length=n, fill=0)
+    for i in range(len(a)):
+        var s = folded[i % n] + a[i]
+        folded[i % n] = s - p if s >= p else s
+    for i in range(n):
+        if wrapped[i] != folded[i]:
+            return False
+    return True
+
+
+def _ntt_divide_exact[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], mut budget: Budget) raises PolyError -> Optional[Optional[List[C]]]:
+    """The exact quotient a / b (inner None when b does not divide a), or None when this method cannot decide.
+
+    Requires len(a) >= len(b) >= 2 with nonzero leading coefficients.
+    """
+    var primes = materialize[_PRIMES]()
+    comptime if C == ModInt:
+        ref lead = rebind[ModInt](a[0])
+        var p = lead.modulus
+        var x = List[UInt64](capacity=len(a))
+        for i in range(len(a)):
+            x.append(rebind[ModInt](a[i]).value)
+        var y = List[UInt64](capacity=len(b))
+        for i in range(len(b)):
+            y.append(rebind[ModInt](b[i]).value)
+        var q = _quotient_mod(x, y, p, budget)
+        if not _equal_mod(x, q, y, p, budget):
+            return Optional(Optional[List[C]](None))
+        _allocation[C](len(q), budget)
+        var result = List[C](capacity=len(q))
+        for v in q:
+            result.append(rebind_var[C](lead._with_residue(v)))
+        return Optional(Optional(result^))
+    elif C == ZZ:
+        # The quotient's coefficients are usually no larger than the dividend's;
+        # a candidate that fails the exact check is retried with twice the primes.
+        var bits_a = _bits_zz(a)
+        var bits = bits_a + _bit_length(len(a)) + 2
+        var k = (bits + _PRIME_BITS - 1) // _PRIME_BITS
+        var m = len(a) - len(b) + 1
+        # |a - q b| < 2^bits_a + max|q| |b|_1; a congruence modulo primes whose
+        # product exceeds twice that bound makes q b = a exact.
+        var spread_b = _bits_zz(b) + _bit_length(len(b))
+        var congruent = 1
+        var residues = List[List[UInt64]]()
+        while k <= _PRIME_COUNT:
+            var all_a = _residues_zz(a, k, len(a), budget)
+            var all_b = _residues_zz(b, k, len(b), budget)
+            for i in range(len(residues), k):
+                if all_b[i][len(b) - 1] == 0:
+                    return None  # the divisor's leading coefficient vanishes modulo this prime
+                var q = _quotient_mod(all_a[i], all_b[i], primes[i], budget)
+                if i == 0 and not _equal_mod(all_a[0], q, all_b[0], primes[0], budget):
+                    # Not divisible modulo a prime that keeps the leading coefficient: not divisible in ZZ[x].
+                    return Optional(Optional[List[C]](None))
+                residues.append(q^)
+            var candidate = _reconstruct_zz[C](residues, k, m, budget)
+            while len(candidate) and candidate[len(candidate) - 1].is_zero():
+                _ = candidate.pop()
+            if len(candidate) == m and _PRIME_BITS * k >= max(bits_a, _bits_zz(_view(candidate)) + spread_b) + 2:
+                var exact = True
+                while congruent < k:
+                    if not _equal_mod(all_a[congruent], residues[congruent], all_b[congruent], primes[congruent], budget):
+                        exact = False
+                        break
+                    congruent += 1
+                if exact:
+                    return Optional(Optional(candidate^))
+                # A failed congruence modulo a prime that keeps the leading coefficient.
+                return Optional(Optional[List[C]](None))
+            if len(candidate) == m:
+                var check = _ntt_zz(_view(candidate), b, False, budget)
+                if check:
+                    ref product = check.value()
+                    var same = len(product) == len(a)
+                    if same:
+                        for i in range(len(a)):
+                            if not (rebind[ZZ](product[i]) == rebind[ZZ](a[i])):
+                                same = False
+                                break
+                    if same:
+                        return Optional(Optional(candidate^))
+            if k == _PRIME_COUNT:
+                break
+            k = min(2 * k, _PRIME_COUNT)
+        return None
+    else:
+        return None
+
+
+def _ntt_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], square: Bool, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """The product of nonempty ZZ or GF(p) coefficient vectors by transforms, or None for other rings and oversized coefficients."""
+    comptime if C == ZZ:
+        return _ntt_zz(a, b, square, budget)
+    elif C == ModInt:
+        return _ntt_modular(a, b, square, budget)
+    else:
+        return None
+
+
+# ------------------------------------------------- truncated and middle products
+
+def _range_length(la: Int, lb: Int, lo: Int, hi: Int) -> Int:
+    """A transform length whose cyclic convolution keeps coefficients lo ..< hi of an la by lb product intact.
+
+    Index j >= n wraps to j - n, which lands in lo ..< hi only when j >= n + lo,
+    so n >= max(hi, la + lb - 1 - lo) suffices.
+    """
+    return _transform_length(max(hi, la + lb - 1 - lo, 1))
+
+
+def _modular_range(a: List[UInt64], b: List[UInt64], lo: Int, hi: Int, p: UInt64, mut budget: Budget) raises PolyError -> List[UInt64]:
+    """Coefficients lo ..< hi of a * b modulo p, for residues below p < 2^62."""
+    var convolver = _Convolver(p, _range_length(len(a), len(b), lo, hi), budget)
+    var square = a == b
+    var ta = convolver.transform(a, budget)
+    var full: List[UInt64]
+    if square:
+        full = convolver.multiply(ta, ta, hi, budget)
+    else:
+        full = convolver.multiply(ta, convolver.transform(b, budget), hi, budget)
+    var out = List[UInt64](capacity=hi - lo)
+    for i in range(lo, hi):
+        out.append(full[i])
+    return out^
+
+
+def _zz_range[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """Coefficients lo ..< hi of a * b over ZZ, or None past the transform limits."""
+    var square = len(a) == len(b) and _same_zz(a, b)
+    return _zz_product_range[C](a, b, lo, hi, square, budget)
+
+
+def _same_zz[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _]) -> Bool:
+    for i in range(len(a)):
+        if not (rebind[ZZ](a[i]) == rebind[ZZ](b[i])):
+            return False
+    return True
+
+
+def _scaled_zz[C: CoefficientRing](values: _CoefficientView[C, _], mut budget: Budget) raises PolyError -> Tuple[List[ZZ], Integer]:
+    """QQ values as integers over their least common denominator, and that denominator."""
+    var common = Integer(1)
+    for i in range(len(values)):
+        ref v = rebind[QQ](values[i]).value
+        _charge_size(rebind[QQ](values[i]).size(), budget)
+        var d = v.denominator()
+        if not (d == Integer(1)):
+            try:
+                common = lcm(common, d)
+            except e:
+                raise PolyError(PolyErrorKind.CAPACITY, String(e))
+    _allocation[ZZ](len(values), budget)
+    var out = List[ZZ](capacity=len(values))
+    for i in range(len(values)):
+        ref v = rebind[QQ](values[i]).value
+        try:
+            out.append(ZZ(v.numerator() * (common // v.denominator())))
+        except e:
+            raise PolyError(PolyErrorKind.CAPACITY, String(e))
+    return (out^, common^)
+
+
+def _ring_range[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """Coefficients lo ..< hi of a * b for nonempty ModInt, ZZ or QQ operands, or None."""
+    comptime if C == ModInt:
+        ref lead = rebind[ModInt](a[0])
+        var x = List[UInt64](capacity=len(a))
+        for i in range(len(a)):
+            x.append(rebind[ModInt](a[i]).value)
+        var y = List[UInt64](capacity=len(b))
+        for i in range(len(b)):
+            y.append(rebind[ModInt](b[i]).value)
+        var values = _modular_range(x, y, lo, hi, lead.modulus, budget)
+        _allocation[C](hi - lo, budget)
+        var result = List[C](capacity=hi - lo)
+        for v in values:
+            result.append(rebind_var[C](lead._with_residue(v)))
+        return result^
+    elif C == ZZ:
+        return _zz_range(a, b, lo, hi, budget)
+    elif C == QQ:
+        var left = _scaled_zz(a, budget)
+        var right = _scaled_zz(b, budget)
+        var integers = _zz_range(_view(left[0]), _view(right[0]), lo, hi, budget)
+        if not integers:
+            return None
+        var denominator: Integer
+        try:
+            denominator = left[1] * right[1]
+        except e:
+            raise PolyError(PolyErrorKind.CAPACITY, String(e))
+        _allocation[C](hi - lo, budget)
+        var result = List[C](capacity=hi - lo)
+        for c in integers.value():
+            _charge_size(c.size(), budget)
+            try:
+                result.append(rebind_var[C](QQ(Rational(c.value, denominator))))
+            except e:
+                raise PolyError(PolyErrorKind.CAPACITY, String(e))
+        return result^
+    else:
+        return None
+
+
+def _ntt_low_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], length: Int, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """The first min(length, len(a) + len(b) - 1) coefficients of a * b, untrimmed, by transforms.
+
+    Covers ModInt, ZZ and QQ (scaled to ZZ by common denominators); None for
+    other rings, and when ZZ or scaled QQ coefficients need more than the
+    table's primes.
+    """
+    var la = min(len(a), length)
+    var lb = min(len(b), length)
+    if la == 0 or lb == 0:
+        return List[C]()
+    var n = min(length, la + lb - 1)
+    var pa = _view_prefix(a, la)
+    var pb = _view_prefix(b, lb)
+    return _ring_range(_view(pa), _view(pb), 0, n, budget)
+
+
+def _ntt_middle_product[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """Coefficients lo ..< hi of a * b (zero beyond the product), by one cyclic transform where the wrap allows.
+
+    Covers the same rings as _ntt_low_product, with the same None rule.
+    """
+    if lo < 0 or hi < lo:
+        raise PolyError(PolyErrorKind.DOMAIN, "invalid middle product range")
+    var la = min(len(a), hi)
+    var lb = min(len(b), hi)
+    if la == 0 or lb == 0 or hi == lo:
+        return _zeros_like(a, b, hi - lo)
+    var top = min(hi, la + lb - 1)
+    if top <= lo:
+        return _zeros_like(a, b, hi - lo)
+    var pa = _view_prefix(a, la)
+    var pb = _view_prefix(b, lb)
+    var values = _ring_range(_view(pa), _view(pb), lo, top, budget)
+    if not values:
+        return None
+    var result = values.take()
+    while len(result) < hi - lo:
+        result.append(C.zero(a[0].context()))
+    return result^
+
+
+def _zeros_like[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], count: Int) -> Optional[List[C]]:
+    var result = List[C]()
+    if count and (len(a) or len(b)):
+        var ctx = a[0].context() if len(a) else b[0].context()
+        for _ in range(count):
+            result.append(C.zero(ctx))
+    return result^
+
+
+def _view_prefix[C: CoefficientRing](values: _CoefficientView[C, _], n: Int) -> List[C]:
+    var out = List[C](capacity=n)
+    for i in range(n):
+        out.append(values[i].copy())
+    return out^
+
+
+# ------------------------------------------------ Kronecker segmentation
+
+comptime _SEGMENT_MOST = 5
+"""Float primes per segmented product at most: digits of up to _DIGIT_MOST bits fill four or five."""
+comptime _DIGIT_MOST = 120
+"""Digit width at most, so a digit spans at most three limbs and two words."""
+
+
+struct _Segments(Movable):
+    """Each coefficient's 64-bit magnitude limbs, bit length and sign."""
+    var limbs: List[UInt64]
+    var offsets: List[Int]
+    var bits: List[Int]
+    var negative: List[Bool]
+    var widest: Int
+    """The largest bit length, at least 1."""
+
+    def __init__[C: CoefficientRing](out self, values: _CoefficientView[C, _], count: Int, mut budget: Budget) raises PolyError:
+        """The first `count` coefficients."""
+        self.limbs = List[UInt64]()
+        self.offsets = List[Int](capacity=count + 1)
+        self.bits = List[Int](capacity=count)
+        self.negative = List[Bool](capacity=count)
+        self.widest = 1
+        self.offsets.append(0)
+        var i = 0
+        while i < count:
+            # Run by run: the view's storage, without indexing each element.
+            var run = values._run(i)
+            for j in range(min(len(run), count - i)):
+                ref c = rebind[ZZ](run[j])
+                _charge_size(c.size(), budget)
+                _magnitude(c.value, self.limbs)
+                self.offsets.append(len(self.limbs))
+                var bits = c.value.magnitude_bit_length()
+                self.bits.append(bits)
+                self.negative.append(c.value.sign() < 0)
+                self.widest = max(self.widest, bits)
+            i += min(len(run), count - i)
+
+    def digits(self, width: Int) -> Int:
+        """Digits of `width` bits in the widest coefficient."""
+        return (self.widest + width - 1) // width
+
+    @always_inline
+    def _word(self, index: Int, end: Int) -> UInt64:
+        return self.limbs.unsafe_get(index) if index < end else 0
+
+    def words(self, width: Int, stride: Int) -> Tuple[List[UInt64], List[UInt64]]:
+        """Digit j of coefficient i at i * stride + j as two words: its low 64 bits, and its bits from 64 up with the sign in bit 63."""
+        var count = len(self.negative) * stride
+        var low = List[UInt64](length=count, fill=0)
+        var high = List[UInt64](length=count, fill=0)
+        var low_mask = UInt64(0) - 1 if width >= 64 else (UInt64(1) << UInt64(width)) - 1
+        var high_mask = (UInt64(1) << UInt64(width - 64)) - 1 if width > 64 else UInt64(0)
+        for i in range(len(self.negative)):
+            var start = self.offsets[i]
+            var end = self.offsets[i + 1]
+            var sign = (UInt64(1) << 63) if self.negative[i] else UInt64(0)
+            for j in range((self.bits[i] + width - 1) // width):
+                var position = j * width
+                var w = start + (position >> 6)
+                var shift = UInt64(position & 63)
+                var x0 = self._word(w, end)
+                var x1 = self._word(w + 1, end)
+                var lo = x0
+                var hi = x1
+                if shift:
+                    lo = (x0 >> shift) | (x1 << (64 - shift))
+                    hi = (x1 >> shift) | (self._word(w + 2, end) << (64 - shift))
+                low.unsafe_get(i * stride + j) = lo & low_mask
+                high.unsafe_get(i * stride + j) = (hi & high_mask) | sign
+        return (low^, high^)
+
+
+def _digit_width(primes: Int, shorter: Int, left: _Segments, right: _Segments) -> Int:
+    """The widest digit whose point sums fit `primes` float primes, or 0.
+
+    A point sums at most shorter * min(s_a, s_b) products of digits below
+    2^min(width, widest) on each side, and the symmetric range of the primes'
+    product holds 2^(49 primes - 1). A side narrower than the digit lets the
+    other's digits widen.
+    """
+    var width = min(_DIGIT_MOST, _FPRIME_BITS * primes - 2 - _bit_length(shorter))
+    while width >= 1 and _bit_length(shorter) + _bit_length(min(left.digits(width), right.digits(width))) + min(width, left.widest) + min(width, right.widest) + 1 > _FPRIME_BITS * primes:
+        width -= 1
+    return max(width, 0)
+
+
+def _transform_cost(primes: Int, n: Int) -> Int:
+    """Relative work of `primes` float transforms of n points: n per stage, the radix-3 layer of a 3 * 2^k length counting as two."""
+    var m = n // 3 if n % 3 == 0 else n
+    var stages = 0
+    while (1 << stages) < m:
+        stages += 1
+    if n % 3 == 0:
+        stages += 2
+    return primes * n * stages
+
+
+def _ks_range[C: CoefficientRing](a: _CoefficientView[C, _], b: _CoefficientView[C, _], lo: Int, hi: Int, square: Bool, mut budget: Budget) raises PolyError -> Optional[List[C]]:
+    """Coefficients lo ..< hi of a * b over ZZ by Kronecker segmentation, or None past the transform limits.
+
+    Digit j of coefficient i, of `width` bits, becomes point i L + j, signed by
+    the coefficient, with L = s_a + s_b - 1 for the widest digit counts s_a, s_b.
+    Products of digits then land at (i + i') L + j + j' with j + j' < L, so slot
+    t of the cyclic convolution holds exactly the base-2^width digits of c_t:
+    no carry crosses slots, and any range of coefficients reads its own slots.
+    Each count of float primes takes its widest digit that keeps every point
+    sum in their symmetric range; the count with the least transform work
+    (_transform_cost) wins, the more primes on ties, for their fewer and
+    wider digits. The work is
+    linear in the bits, where multi-modular CRT is quadratic.
+    """
+    var la = min(len(a), hi)
+    var lb = min(len(b), hi)
+    if la == 0 or lb == 0 or lo >= hi:
+        return _zeros_like(a, b, hi - lo)
+    var left = _Segments(a, la, budget)
+    var right = _Segments(b, lb, budget)
+    var shorter = min(la, lb)
+    var primes = 0
+    var width = 0
+    var stride = 0
+    var n = 0
+    for k in range(2, _SEGMENT_MOST + 1):
+        var w = _digit_width(k, shorter, left, right)
+        if w == 0:
+            continue
+        var l = left.digits(w) + right.digits(w) - 1
+        var length = _ftransform_length(max(hi, la + lb - 1 - lo) * l)
+        if length > (1 << 30):
+            continue
+        if primes == 0 or _transform_cost(k, length) <= _transform_cost(primes, n):
+            primes = k
+            width = w
+            stride = l
+            n = length
+    if primes == 2:
+        return _ks_core[C, 2](left, right, lo, hi, width, stride, n, square, budget)
+    if primes == 3:
+        return _ks_core[C, 3](left, right, lo, hi, width, stride, n, square, budget)
+    if primes == 4:
+        return _ks_core[C, 4](left, right, lo, hi, width, stride, n, square, budget)
+    if primes == 5:
+        return _ks_core[C, 5](left, right, lo, hi, width, stride, n, square, budget)
+    return None
+
+
+def _ks_core[C: CoefficientRing, K: Int](left: _Segments, right: _Segments, lo: Int, hi: Int, width: Int, stride: Int, n: Int, square: Bool, mut budget: Budget) raises PolyError -> List[C]:
+    """The convolution and reassembly of _ks_range modulo K float primes."""
+    _charge_transforms(K, n, square, budget)
+    var count = (hi - lo) * stride
+    _allocation[UInt64](_product(K + 2, n), budget)
+    var primes = _moduli[True](K)
+    var residues = List[List[UInt64]](capacity=K)
+    if not square and stride > 1 and left.digits(width) == 1:
+        residues = _ks_columns[K](left, right, lo, hi, width, stride, primes)
+    elif not square and stride > 1 and right.digits(width) == 1:
+        residues = _ks_columns[K](right, left, lo, hi, width, stride, primes)
+    else:
+        # Each digit is extracted once; every prime reduces the words in lanes.
+        var left_words = left.words(width, stride)
+        var right_words = Tuple[List[UInt64], List[UInt64]](List[UInt64](), List[UInt64]()) if square else right.words(width, stride)
+        for p in range(K):
+            var x = _fpoints(left_words[0], left_words[1], primes[p], n)
+            var y = List[Float64]() if square else _fpoints(right_words[0], right_words[1], primes[p], n)
+            residues.append(_fconvolve_floats(x^, y^, lo * stride, hi * stride, square, p))
+    _charge_size(_product(count, 2 * K + 2), budget)
+    _allocation[C](hi - lo, budget)
+    # Every point's mixed-radix digits at once, eight lanes wide.
+    var digits = List[UInt64](length=K * count, fill=0)
+    _float_digits[K](residues, primes, digits)
+    # Points below the modulus M < 2^(50 K) take Z words with their sign; the
+    # unemitted bits, below 2^(64 + 50 K + 1) in magnitude, take A words.
+    comptime Z = (50 * K + 64) // 64
+    comptime A = (50 * K + 129) // 64
+    var modulus = _radix_limbs[True](K)
+    modulus.resize(Z + 1, 0)
+    var half = Array[UInt64, Z](fill=0)
+    comptime for w in range(Z):
+        half[w] = (modulus[w] >> 1) | (modulus[w + 1] << 63)
+    # |c_t| < 2^((L - 1) width + 50 K), so `words` limbs hold it with its sign.
+    var words = ((stride - 1) * width + 50 * K) // 64 + 2
+    var limbs = List[UInt64](length=words, fill=0)
+    var bytes = List[UInt8](length=8 * words, fill=0)
+    var result = List[C](capacity=hi - lo)
+    var d = digits.unsafe_ptr()
+    for t in range(hi - lo):
+        # c_t = sum_u z_u 2^(width u): acc holds the unemitted bits from limb e
+        # up, in two's complement; bits below the next digit are final.
+        var acc = Array[UInt64, A](fill=0)
+        var e = 0
+        for u in range(stride):
+            var index = t * stride + u
+            # z = v_0 + q_0 (v_1 + q_1 (v_2 + ...)), below the modulus.
+            var z = Array[UInt64, Z](fill=0)
+            z[0] = d.unsafe_offset((K - 1) * count + index).unsafe_load()
+            comptime for step in range(K - 1):
+                comptime i = K - 2 - step
+                var carry = UInt128(d.unsafe_offset(i * count + index).unsafe_load())
+                var q = UInt128(primes[i])
+                comptime for w in range(Z):
+                    var x = UInt128(z[w]) * q + carry
+                    z[w] = UInt64(x)
+                    carry = x >> 64
+            # Above half the modulus the point is negative: subtract it.
+            var above = False
+            var decided = False
+            comptime for step in range(Z):
+                comptime w = Z - 1 - step
+                if not decided and z[w] != half[w]:
+                    above = z[w] > half[w]
+                    decided = True
+            if above:
+                var borrow = UInt64(0)
+                comptime for w in range(Z):
+                    var m = modulus[w]
+                    var next = UInt64(1) if (z[w] < m or (z[w] == m and borrow == 1)) else UInt64(0)
+                    z[w] = z[w] - m - borrow
+                    borrow = next
+            var sign = UInt64(0) - (z[Z - 1] >> 63)
+            var shift = UInt64(u * width - 64 * e)
+            var shifted = Array[UInt64, A](fill=sign)
+            if shift:
+                shifted[0] = z[0] << shift
+                comptime for w in range(1, Z):
+                    shifted[w] = (z[w] << shift) | (z[w - 1] >> (64 - shift))
+                shifted[Z] = (sign << shift) | (z[Z - 1] >> (64 - shift))
+            else:
+                comptime for w in range(Z):
+                    shifted[w] = z[w]
+            var carry = UInt64(0)
+            comptime for w in range(A):
+                var s = acc[w] + shifted[w]
+                var c = UInt64(1) if s < acc[w] else UInt64(0)
+                var sc = s + carry
+                c += UInt64(1) if sc < s else UInt64(0)
+                acc[w] = sc
+                carry = c
+            while 64 * (e + 1) <= (u + 1) * width and e < words:
+                limbs.unsafe_get(e) = acc[0]
+                comptime for w in range(A - 1):
+                    acc[w] = acc[w + 1]
+                acc[A - 1] = UInt64(Int64(acc[A - 1]) >> 63)
+                e += 1
+        while e < words:
+            limbs.unsafe_get(e) = acc[0]
+            comptime for w in range(A - 1):
+                acc[w] = acc[w + 1]
+            acc[A - 1] = UInt64(Int64(acc[A - 1]) >> 63)
+            e += 1
+        var negative = (limbs.unsafe_get(words - 1) >> 63) == 1
+        if negative:
+            var carry = UInt64(1)
+            for w in range(words):
+                var v = ~limbs.unsafe_get(w) + carry
+                carry = UInt64(1) if (carry == 1 and v == 0) else UInt64(0)
+                limbs.unsafe_get(w) = v
+        var used = words
+        while used > 1 and limbs.unsafe_get(used - 1) == 0:
+            used -= 1
+        result.append(rebind_var[C](ZZ(_integer(limbs, used, negative, bytes))))
+    return result^
+
+
+def _ks_columns[K: Int](narrow: _Segments, wide: _Segments, lo: Int, hi: Int, width: Int, stride: Int, primes: List[UInt64]) -> List[List[UInt64]]:
+    """The residues of points lo * stride ..< hi * stride of _ks_core when `narrow` has one digit per coefficient.
+
+    Point t L + u then sums narrow_i times digit u of wide_(t - i) alone, so
+    each digit column u of `wide` is its own convolution with `narrow`: L
+    transforms of an L-th the length, sharing narrow's transform, in place of
+    three of the full length.
+    """
+    var ln = len(narrow.negative)
+    var lw = len(wide.negative)
+    var m = _ftransform_length(max(hi, ln + lw - 1 - lo, 1))
+    var narrow_words = narrow.words(width, 1)
+    var wide_words = wide.words(width, stride)
+    var count = (hi - lo) * stride
+    var low = List[UInt64](length=lw, fill=0)
+    var high = List[UInt64](length=lw, fill=0)
+    var residues = List[List[UInt64]](capacity=K)
+    for p in range(K):
+        var tables = _ftables(p, m)
+        var prime = Float64(primes[p])
+        var x = _fpoints(narrow_words[0], narrow_words[1], primes[p], m)
+        _fforward(x, tables, prime)
+        var points = List[UInt64](length=count, fill=0)
+        for u in range(stride):
+            for i in range(lw):
+                low.unsafe_get(i) = wide_words[0].unsafe_get(i * stride + u)
+                high.unsafe_get(i) = wide_words[1].unsafe_get(i * stride + u)
+            var z = _fcolumn(x, _fpoints(low, high, primes[p], m), tables, prime, lo, hi)
+            for t in range(hi - lo):
+                points.unsafe_get(t * stride + u) = z.unsafe_get(t)
+        residues.append(points^)
+    return residues^

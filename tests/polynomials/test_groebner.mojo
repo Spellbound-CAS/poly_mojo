@@ -15,6 +15,20 @@ def compare_case[C: CoefficientField](generators: List[SparsePoly[C]], expected:
         reversed_generators.append(generators[i].copy())
     var reverse = groebner(reversed_generators, order, work)
     c.check(reverse.basis == expected, "generator order independence")
+    # The trace: the same basis, a replay that reproduces it, and expanded
+    # rows that check as membership certificates; a changed basis fails.
+    var traced = groebner(generators, order, work, trace=True)
+    c.check(traced.basis == expected and Bool(traced.trace) and not traced.cofactors, "trace preserves basis")
+    ref trace = traced.trace.value()
+    c.check(trace.replay(generators, traced.basis, work), "trace replays to the basis")
+    if len(expected) <= 3:
+        for i in range(len(traced.basis)):
+            var proof = MembershipCertificate[C](trace.cofactors(i, generators, work))
+            c.check(check_membership(traced.basis[i], generators, proof, work), "expanded trace row identity")
+    if len(traced.basis) > 0 and len(traced.basis[0].terms) > 0:
+        var altered = traced.basis.copy()
+        altered[0] = altered[0].add(altered[0], work)
+        c.check(not trace.replay(generators, altered, work), "trace rejects a changed basis element")
     if len(expected) <= 3:
         var tracked = groebner(generators, order, work, track_cofactors=True)
         c.check(tracked.basis == expected and Bool(tracked.cofactors), "tracking preserves basis")

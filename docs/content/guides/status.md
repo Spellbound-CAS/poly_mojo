@@ -52,11 +52,6 @@ The [domain guide](domains.md) maps coefficient types to algorithms. The
 - **Resource limits are explicit.** Budget exhaustion raises; it never becomes
   a mathematical answer. Incremental APIs reduce retained data without
   promising constant memory.
-- **Compatibility is at source level.** The snapshots preserve public Mojo
-  declarations, not a stable native ABI or a universal certificate wire format.
-
-## Validation and maintenance
-
-The library and its tests require only apn_mojo. The
-[maintainer guide](../contributing/handoff.md) gives the current commands
-and explains contract checks, independent fixtures, and documentation tests.
+- **Compatibility is at source level.** Public Mojo declarations do not imply
+  a stable native ABI or a universal certificate wire format. See
+  [source compatibility and certificates](../reference/contract-p.md).

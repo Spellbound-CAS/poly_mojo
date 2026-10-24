@@ -3,23 +3,27 @@ from std.collections import Optional
 from .errors import Budget, PolyError, _allocation
 from .coefficients import QQ, NoContext
 from .dense import DensePoly
-from .certificates import SturmSequence, RootCountCertificate, check_root_count, _check_root_count_parts, _dense_equal
+from .certificates import _dense_equal
+from .roots import RootInterval
+from .descartes import _one_root
 from ._dense_ops import _copy as _copy_poly
-from ._root_ops import _compare as _compare_q, _copy as _copy_q
-from .evaluate import evaluate_dense
+from ._root_ops import _compare as _compare_q, _copy as _copy_q, _sign_at
 
 
 @fieldwise_init
 struct RealAlgebraic(Copyable, Movable, Writable):
-    """An exact real root with a complete rational Sturm witness."""
+    """An exact real root isolated by Descartes' rule of signs.
+
+    An irrational value's polynomial has nonzero values of opposite sign at
+    the endpoints and Descartes bound 1 on the open interval between them,
+    which also excludes a repeated root there.
+    """
     var polynomial: DensePoly[QQ]
     """The monic defining polynomial in internal variable zero."""
     var low: QQ
     """The lower endpoint, equal to high for a rational value."""
     var high: QQ
     """The upper endpoint of the root interval."""
-    var sequence: SturmSequence
-    """The Sturm recurrence proving a unique root, empty for rational values."""
     var rational: Bool
     """Whether the endpoints specify an exact rational value."""
 
@@ -27,25 +31,11 @@ struct RealAlgebraic(Copyable, Movable, Writable):
 def _rational(q: QQ, mut budget: Budget) raises PolyError -> RealAlgebraic:
     _allocation[QQ](2, budget)
     var p = DensePoly[QQ].from_coefficients(0, NoContext(), [q.neg(budget), QQ.one(NoContext())], budget)
-    return RealAlgebraic(p^, _copy_q(q, budget), _copy_q(q, budget), SturmSequence(List[DensePoly[QQ]](), List[DensePoly[QQ]]()), True)
-
-
-def _copy_sequence(sequence: SturmSequence, mut budget: Budget) raises PolyError -> SturmSequence:
-    _allocation[DensePoly[QQ]](len(sequence.polynomials), budget)
-    _allocation[DensePoly[QQ]](len(sequence.quotients), budget)
-    var polynomials = List[DensePoly[QQ]]()
-    var quotients = List[DensePoly[QQ]]()
-    for p in sequence.polynomials:
-        budget.charge(1)
-        polynomials.append(_copy_poly(p, budget))
-    for p in sequence.quotients:
-        budget.charge(1)
-        quotients.append(_copy_poly(p, budget))
-    return SturmSequence(polynomials^, quotients^)
+    return RealAlgebraic(p^, _copy_q(q, budget), _copy_q(q, budget), True)
 
 
 def _copy_real(a: RealAlgebraic, mut budget: Budget) raises PolyError -> RealAlgebraic:
-    return RealAlgebraic(_copy_poly(a.polynomial, budget), _copy_q(a.low, budget), _copy_q(a.high, budget), _copy_sequence(a.sequence, budget), a.rational)
+    return RealAlgebraic(_copy_poly(a.polynomial, budget), _copy_q(a.low, budget), _copy_q(a.high, budget), a.rational)
 
 
 
@@ -64,8 +54,8 @@ struct AlgebraicComparisonCertificate(Copyable, Movable, Writable):
     """The quotient of the left definition by the common factor."""
     var right_cofactor: DensePoly[QQ]
     """The quotient of the right definition by the common factor."""
-    var shared: Optional[RootCountCertificate]
-    """A unique common root inside both refined intervals."""
+    var shared: Optional[RootInterval]
+    """An open interval inside both refined intervals where the common factor has Descartes bound 1 and changes sign."""
 
 
 def _check_real(a: RealAlgebraic, mut budget: Budget) raises PolyError -> Bool:
@@ -75,8 +65,8 @@ def _check_real(a: RealAlgebraic, mut budget: Budget) raises PolyError -> Bool:
     if _compare_q(a.polynomial.coefficients[a.polynomial.degree()], QQ.one(NoContext()), budget) != 0:
         return False
     if a.rational:
-        return a.polynomial.degree() == 1 and _compare_q(a.low, a.high, budget) == 0 and evaluate_dense(a.polynomial, a.low, budget).is_zero() and len(a.sequence.polynomials) == 0 and len(a.sequence.quotients) == 0
-    return _check_root_count_parts(a.polynomial, a.sequence, a.low, a.high, 1, budget)
+        return a.polynomial.degree() == 1 and _compare_q(a.low, a.high, budget) == 0 and _sign_at(a.polynomial, a.low, budget) == 0
+    return _one_root(a.polynomial, a.low, a.high, budget)
 
 
 def _same_root(a: RealAlgebraic, original: RealAlgebraic, mut budget: Budget) raises PolyError -> Bool:
@@ -104,12 +94,14 @@ def _check_comparison(a: RealAlgebraic, b: RealAlgebraic, proof: AlgebraicCompar
         ref other = proof.right if proof.left.rational else proof.left
         if other.rational:
             return _compare_q(point, other.low, budget) == 0
-        return _compare_q(other.low, point, budget) < 0 and _compare_q(point, other.high, budget) < 0 and evaluate_dense(other.polynomial, point, budget).is_zero()
+        return _compare_q(other.low, point, budget) < 0 and _compare_q(point, other.high, budget) < 0 and _sign_at(other.polynomial, point, budget) == 0
     if not proof.shared:
         return False
+    # The common factor's single root in the shared interval is a root of both
+    # definitions inside both isolating intervals, so it is both values.
     ref shared = proof.shared.value()
-    if shared.count != 1 or not check_root_count(proof.common, shared, budget):
+    if not _one_root(proof.common, shared.low, shared.high, budget):
         return False
     if not _dense_equal(proof.common.mul(proof.left_cofactor, budget), a.polynomial, budget) or not _dense_equal(proof.common.mul(proof.right_cofactor, budget), b.polynomial, budget):
         return False
-    return _compare_q(shared.a, proof.left.low, budget) >= 0 and _compare_q(shared.b, proof.left.high, budget) <= 0 and _compare_q(shared.a, proof.right.low, budget) >= 0 and _compare_q(shared.b, proof.right.high, budget) <= 0
+    return _compare_q(shared.low, proof.left.low, budget) >= 0 and _compare_q(shared.high, proof.left.high, budget) <= 0 and _compare_q(shared.low, proof.right.low, budget) >= 0 and _compare_q(shared.high, proof.right.high, budget) <= 0

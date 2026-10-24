@@ -213,7 +213,7 @@ pixi run --locked -e docs docs-check
 
 The site includes runnable examples, mathematical explanations, and generated
 API declarations. To contribute, follow the
-[maintainer guide](docs/content/contributing/handoff.md) for build, test, and
+[contribution guide](CONTRIBUTING.md) for build, test, and
 compatibility workflows.
 
 ## License

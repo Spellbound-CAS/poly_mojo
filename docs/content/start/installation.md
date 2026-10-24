@@ -89,5 +89,4 @@ pixi run --locked -e docs docs-serve
 
 The separate `docs` environment supplies MkDocs and the rendering dependencies.
 `pixi run --locked -e docs docs-check` builds the site and checks its links and
-content inventory. Library tests and executable example checks are covered in
-the [maintainer guide](../contributing/handoff.md).
+content inventory.

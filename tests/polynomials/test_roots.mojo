@@ -85,7 +85,7 @@ def main() raises:
     c.check(len(constants.exact_roots) == 0 and len(constants.intervals) == 0, "constant has no roots")
     var budget_input = DensePoly[QQ].from_coefficients(4, NoContext(), [QQ(Rational(-2)), QQ.zero(NoContext()), QQ.zero(NoContext()), QQ.one(NoContext())], work)
     var before = budget_input.copy()
-    var budgets: List[UInt64] = [0, 100, 10000]
+    var budgets: List[UInt64] = [0, 10, 100]
     for limit in budgets:
         var tiny = Budget(limit)
         try:

@@ -3,7 +3,7 @@
 These APIs provide rounded arithmetic, rigorous evaluation, and validated
 real and complex root covers. The [examples](#example) show evaluation, enclosures,
 and root refinement; array users start with [numerical coefficients](../tutorial/array-numeric.md).
-Numerical declarations have a separate compatibility snapshot and do not
+Numerical values use their own precision and enclosure rules; they do not
 extend the exact kernel codec.
 
 ## Domains and operations
@@ -77,17 +77,32 @@ evaluation checker must also be called.
 ## Real and complex roots
 
 Real root entry points accept exact ZZ/QQ and real numerical coefficients.
-Finite Float coefficients denote their exact stored binary rationals. Point
-inputs use one shared Sturm certificate and a bounded subdivision worklist;
-counts are **distinct real roots**. Repeated roots do not defeat this path.
+Counts are **distinct real roots**; repeated roots do not defeat either path.
+
+Exact ZZ/QQ inputs (`real_roots_exact`) are isolated by Descartes' rule of
+signs on the squarefree part g = f / gcd(f, f'), and the result is a
+`DescartesRootResult` with a [Descartes certificate](../reference/p5.md#descartes-certificates):
+leaves partitioning (-2^k, 2^k) with recomputable Descartes bounds, the rational
+roots met at shared leaf ends, and a bracket for every other root, tightened
+by quadratic interval refinement until the requested widths hold. Brackets
+are open intervals with a sign change of g, so each root lies strictly
+inside; an exact rational root is reported as itself. `max_subdivisions`
+bounds isolation splits and refinement steps together; a result that runs
+out leaves unresolved leaves or wide brackets and reports
+`SUBDIVISION_LIMIT`. `check_real_roots_exact` recomputes gcd(f, f') and checks
+the certificate without searching.
+
+Numerical inputs (`real_roots_numeric`) keep the cell cover. Finite Float
+coefficients and exact point balls denote exact stored rationals; such point
+inputs use one shared Sturm certificate and a bounded subdivision worklist.
 Real ball families use uniform image exclusion, endpoint signs, derivative
 bounds and interval Newton predicates. Their output includes excluded cells,
 forming an ordered cover of a checked global Cauchy interval. If two explicit
 endpoint coefficient choices have different exact global Sturm counts, the
 request returns `INPUT_UNCERTAINTY` immediately; equal counts do not establish a
-uniform claim. All counted roots
-are strictly inside their cells. There is no inferred multiplicity for a ball
-family and no automatic multiplicity attachment for exact real inputs.
+uniform claim. All counted roots are strictly inside their cells. There is no
+inferred multiplicity for a ball family; exact inputs attach multiplicities
+with `real_root_multiplicities`.
 
 Complex entry points accept exact ZZ/QQ/QQi and every numerical domain. Each output
 rectangle has a zero-free boundary trace and an exact rational winding count,
@@ -145,7 +160,8 @@ then checks an enclosure of the exact polynomial over a small interval around
 <!-- example: docs/examples/tutorial_numerical.mojo -->
 
 `refine_real_roots_exact` takes the original polynomial, the previous result,
-and both sets of options. It checks and reuses the earlier evidence:
+and both sets of options. It checks the earlier certificate, keeps its leaves
+and tightens its brackets:
 
 <!-- example: docs/examples/tutorial_refinement.mojo -->
 
@@ -278,21 +294,26 @@ full `EnclosureEvaluation.steps` list and unchanged certificate format.
 The toolkit adds numerical calculus, interpolation, basis conversion, formal series,
 lossless interchange, resumable real/complex root refinement, exact real-root
 multiplicity certificates, diagnostic bounds, certified Newton polishing and
-numerical division. These additive APIs are documented in the
-[toolkit reference](../reference/toolkit.md). Existing result and certificate
-formats remain unchanged.
+numerical division. These APIs are documented in the
+[toolkit reference](../reference/toolkit.md).
 
 ## Incremental root witnesses
 
 `real_roots_exact_to`, `real_roots_numeric_to`, `complex_roots_exact_to` and
 `complex_roots_numeric_to` send completed local witnesses directly to a sink.
-The materialized APIs and stream producers share their refinement workers.
-Real streams start with borrowed shared Sturm evidence, absent for uncertain
-coefficient families, and emit an ordered cover including excluded cells.
-Complex streams emit positive-count rectangles in the original traversal order.
+The materialized APIs and stream producers share their workers.
+Exact real streams go to a `DescartesRootSink`: `begin` receives the squarefree
+part, gcd(f, f') and the bound exponent, and each `DescartesRootItem` carries
+one leaf in increasing order with the exact root at its lower end, if any, and
+its brackets. The producer holds the certificate while it streams it; the
+consumer need not. Numerical real streams start with borrowed shared Sturm
+evidence, absent for uncertain coefficient families, and emit an ordered
+cover including excluded cells. Complex streams emit positive-count
+rectangles in the original traversal order.
 
-Prepare `RealRootStreamChecker` or `ComplexRootStreamChecker` from the original
-polynomial and options, use it as the sink, then call `finish(receipt, budget)`.
+Prepare `DescartesStreamChecker` (exact real), `RealRootStreamChecker`
+(numerical real) or `ComplexRootStreamChecker` from the original polynomial
+and options, use it as the sink, then call `finish(receipt, budget)`.
 For transported evidence, call `begin` for the real header, `accept` for each
 local witness, and `finish` for the receipt. Header/witness rejection or an error
 during `begin` or `accept` invalidates the checker permanently. `finish` checks
@@ -307,14 +328,21 @@ pass `finish`. A checker used directly as a sink raises on unresolved local
 counts. `complete_only=True` can raise after transporting a prefix, which must
 not be treated as a completed proof.
 
-Real checking stores coefficient bounds, shared Sturm evidence and a current
-endpoint. Complex checking stores rectangle geometry for pairwise disjointness;
+Exact real checking stores the squarefree part and a current endpoint, and
+recomputes each leaf's bound as it arrives. Numerical real checking stores
+coefficient bounds, shared Sturm evidence and a current endpoint. Complex checking stores rectangle geometry for pairwise disjointness;
 completed contour traces are discarded. Producers retain their active search
 frontier. One cell or contour witness is still materialized at a time.
 
 <!-- api: src/polynomials/numeric_complex_roots.mojo ComplexRootSink -->
 
 <!-- api: src/polynomials/root_stream_check.mojo ComplexRootStreamChecker -->
+
+<!-- api: src/polynomials/descartes.mojo DescartesRootItem -->
+
+<!-- api: src/polynomials/descartes.mojo DescartesRootSink -->
+
+<!-- api: src/polynomials/descartes.mojo DescartesStreamChecker -->
 
 <!-- api: src/polynomials/numeric_real_roots.mojo RealRootSink -->
 

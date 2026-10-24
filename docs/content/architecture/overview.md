@@ -45,7 +45,7 @@ depend on numerical modules.
 |---|---|
 | Public imports and errors | `__init__.mojo`, `errors.mojo` |
 | Exact scalar adapters | `coefficients.mojo`, `exact_complex.mojo` |
-| Representation and construction | `monomial.mojo`, `dense.mojo`, `sparse.mojo`, `builders.mojo` |
+| Representation and construction | `monomial.mojo`, `dense.mojo`, `sparse.mojo`, `packed.mojo`, `builders.mojo` |
 | Division and elimination | `division.mojo`, `gcd.mojo`, `resultant.mojo`, `fractions.mojo` |
 | Factorization and ideals | `squarefree.mojo`, `finite_field.mojo`, `factor.mojo`, `multivariate_factor.mojo`, `gaussian_factor.mojo`, `field_multivariate_factor.mojo`, `sparse_squarefree.mojo`, `sparse_gcd.mojo`, `groebner.mojo` |
 | Exact roots and real geometry | `roots.mojo`, `algebraic*.mojo`, `cad*.mojo`, `lazard.mojo`, `cylindrical_covering.mojo` |

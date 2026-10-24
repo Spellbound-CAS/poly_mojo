@@ -1,5 +1,6 @@
 """Internal content recursion and deterministic modular gcd reconstruction."""
 from apn_mojo import Integer
+from std.collections import Dict
 from ._images import _integer_image, _rational_image, _mod_image
 from .errors import Budget, PolyError, _allocation, _charge_size, _sum
 from .coefficients import CoefficientRing, ZZ, QQ, ModInt, Modulus, NoContext
@@ -11,6 +12,13 @@ from ._dense_ops import _gcd as _field_gcd
 from ._views import _is_unit
 from ._tower import _split, _one, _zero, _constant, _variables, _exact_poly
 from ._prs import _prs
+from ._univariate_modular import _GcdSearch, _next_gcd_candidate, _univariate_gcd
+from .monomial import MonomialOrder
+from ._sparse_gcd import _sparse_gcd
+from ._heuristic_gcd import _heuristic, _small_for_heuristic
+from ._brown_gcd import _brown_gcd
+from ._sparse_brown import _sparse_brown_gcd
+from ._multivariate_gcd import _deflation, _deflates, _scaled, _image_coprime, _degrees
 from .primes import prime, _residue, _merge_residue, _symmetric
 
 
@@ -52,56 +60,96 @@ def _modular_primitive(f: SparsePoly[ZZ], h: SparsePoly[ZZ], variable: Int64, mu
     var fd = DensePoly[ZZ].from_sparse(f, budget, variable=variable)
     var hd = DensePoly[ZZ].from_sparse(h, budget, variable=variable)
     var gamma = _gcd_coefficient(fd.coefficients[len(fd.coefficients) - 1], hd.coefficients[len(hd.coefficients) - 1], budget)
-    var best = min(fd.degree(), hd.degree()) + 1
-    var reconstructed = List[Integer]()
-    var modulus = Integer(1)
-    var index = 0
+    var state = _GcdSearch(gamma^, min(fd.degree(), hd.degree()) + 1, fd, hd, budget)
     while True:
         budget.charge(1)
-        var p = prime(index, budget)
-        index = _sum(index, 1)
-        # Both degrees must survive reduction, as required by G-5's proof.
-        # Testing only gamma would incorrectly admit a drop in one input.
-        if _residue(fd.coefficients[len(fd.coefficients) - 1].value, p, budget) == 0 or _residue(hd.coefficients[len(hd.coefficients) - 1].value, p, budget) == 0:
-            continue
-        var ctx = Modulus(_prime_value=p)
-        var image = _field_gcd(_mod_image(fd, ctx, budget), _mod_image(hd, ctx, budget), budget)
-        if image.degree() > best:
-            continue
-        if image.degree() < best:
-            best = image.degree()
-            _allocation[Integer](best + 1, budget)
-            reconstructed = List[Integer](length=best + 1, fill=Integer(0))
-            modulus = Integer(1)
-        image = image.scale(ModInt(_residue(gamma.value, p, budget), ctx), budget)
-        for i in range(best + 1):
-            budget.charge(1)
-            reconstructed[i] = _merge_residue(reconstructed[i], modulus, image.coefficients[i].value, p, budget)
-        modulus = ZZ(modulus.copy()).mul(ZZ(Integer(Int(p))), budget).value
-        _allocation[ZZ](best + 1, budget)
-        var coefficients = List[ZZ](capacity=best + 1)
-        for i in range(best + 1):
-            budget.charge(1)
-            coefficients.append(ZZ(_symmetric(reconstructed[i], modulus, budget)))
-        var dense = DensePoly[ZZ].from_coefficients(variable, NoContext(), coefficients^, budget)
-        if dense.degree() != best:
-            continue
+        var dense = _next_gcd_candidate(fd, hd, state, budget)
+        if dense.degree() == 0:
+            return _one(f, budget)
         var candidate = _primitive_zz(dense.to_sparse(f.order, budget), budget)
         if divide_exact(f, candidate, budget) and divide_exact(h, candidate, budget):
             return candidate^
 
 
-def _content[C: CoefficientRing](p: SparsePoly[C], variable: Int64, mut budget: Budget) raises PolyError -> SparsePoly[C]:
+def _content[C: CoefficientRing](p: SparsePoly[C], variable: Int64, mut budget: Budget, heuristic: Bool = True) raises PolyError -> SparsePoly[C]:
     var result = _zero(p, budget)
     for coefficient in _split(p, variable, budget):
         budget.charge(1)
-        result = _gcd_value(result, coefficient, budget)
+        result = _gcd_value(result, coefficient, budget, heuristic)
         if _is_unit(result, budget):
             break
     return result^
 
 
-def _gcd_value[C: CoefficientRing](f: SparsePoly[C], h: SparsePoly[C], mut budget: Budget) raises PolyError -> SparsePoly[C]:
+def _constant_content[C: CoefficientRing](p: SparsePoly[C], variable: Int64, mut budget: Budget) raises PolyError -> Bool:
+    """Whether some coefficient of p in `variable` is a single integer, so that the content divides it.
+
+    That coefficient comes from a term in no other variable that is alone at
+    its degree in `variable`.
+    """
+    var count = Dict[UInt32, Int]()
+    var pure = List[UInt32]()
+    for t in p.terms:
+        budget.charge(1)
+        var degree = UInt32(0)
+        var only = True
+        for pair in t.monomial.pairs:
+            if pair[0] == variable:
+                degree = pair[1]
+            else:
+                only = False
+        count[degree] = count.get(degree, 0) + 1
+        if only:
+            pure.append(degree)
+    for degree in pure:
+        if count.get(degree, 0) == 1:
+            return True
+    return False
+
+
+def _occurring[C: CoefficientRing](f: SparsePoly[C], h: SparsePoly[C], mut budget: Budget) raises PolyError -> List[Int64]:
+    """The sorted variables occurring in f or h, in one pass when every index is below 64."""
+    var mask = UInt64(0)
+    for t in f.terms:
+        budget.charge(1)
+        for pair in t.monomial.pairs:
+            if pair[0] < 0 or pair[0] >= 64:
+                return _variables(f, h, budget)
+            mask |= UInt64(1) << UInt64(pair[0])
+    for t in h.terms:
+        budget.charge(1)
+        for pair in t.monomial.pairs:
+            if pair[0] < 0 or pair[0] >= 64:
+                return _variables(f, h, budget)
+            mask |= UInt64(1) << UInt64(pair[0])
+    var out = List[Int64]()
+    for v in range(64):
+        if (mask >> UInt64(v)) & 1:
+            out.append(Int64(v))
+    return out^
+
+
+def _dense_in_total_degree[C: CoefficientRing](p: SparsePoly[C], n: Int, mut budget: Budget) raises PolyError -> Bool:
+    """Whether p has at least 3/5 of the C(d + n, n) monomials of degree at most its total degree d."""
+    var d = 0
+    for t in p.terms:
+        budget.charge(1)
+        var total = 0
+        for pair in t.monomial.pairs:
+            total += Int(pair[1])
+        d = max(d, total)
+    # C(d + n, n) built incrementally; stop once it exceeds 5/3 of the term count.
+    var count = 1
+    var limit = (5 * len(p.terms)) // 3
+    for i in range(1, n + 1):
+        count = count * (d + i) // i
+        if count > limit:
+            return False
+    return True
+
+
+def _gcd_value[C: CoefficientRing](f: SparsePoly[C], h: SparsePoly[C], mut budget: Budget, heuristic: Bool = True) raises PolyError -> SparsePoly[C]:
+    # heuristic=False skips GCDHEU, for contents of a pair on which it already failed.
     f._same(h, budget)
     if f.is_zero():
         return _normalized(h, budget)
@@ -109,28 +157,89 @@ def _gcd_value[C: CoefficientRing](f: SparsePoly[C], h: SparsePoly[C], mut budge
         return _normalized(f, budget)
     if _is_unit(f, budget) or _is_unit(h, budget):
         return _one(f, budget)
-    var variables = _variables(f, h, budget)
+    var variables = _occurring(f, h, budget)
     if not len(variables):
         return _constant(f, _gcd_coefficient(f.terms[0].coefficient, h.terms[0].coefficient, budget), budget)
     var variable = variables[0]
+    comptime if C == QQ:
+        # Clearing denominators scales each input by a unit of QQ, so the monic
+        # gcd is that of the integer images; their gcd takes the integer paths.
+        var integer_f = _integer_image(rebind[SparsePoly[QQ]](f), budget)
+        var integer_h = _integer_image(rebind[SparsePoly[QQ]](h), budget)
+        var integer_gcd = _gcd_value(integer_f, integer_h, budget)
+        return rebind_var[SparsePoly[C]](_normalized(_rational_image(integer_gcd, budget), budget))
     if len(variables) == 1:
-        comptime if C == QQ:
-            var integer_f = _integer_image(rebind[SparsePoly[QQ]](f), budget)
-            var integer_h = _integer_image(rebind[SparsePoly[QQ]](h), budget)
-            var integer_gcd = _gcd_value(integer_f, integer_h, budget)
-            return rebind_var[SparsePoly[C]](_normalized(_rational_image(integer_gcd, budget), budget))
-        elif C == ModInt:
+        comptime if C == ModInt:
             var result = _field_gcd(DensePoly[ModInt].from_sparse(rebind[SparsePoly[ModInt]](f), budget, variable=variable), DensePoly[ModInt].from_sparse(rebind[SparsePoly[ModInt]](h), budget, variable=variable), budget)
             return rebind_var[SparsePoly[C]](result.to_sparse(f.order, budget))
-    var cf = _content(f, variable, budget)
-    var ch = _content(h, variable, budget)
-    var common = _gcd_value(cf, ch, budget)
+    comptime if C == ZZ:
+        if len(variables) == 1 and max(f.degree_in(variable, budget), h.degree_in(variable, budget)) >= _MODULAR_THRESHOLD:
+            var fd = DensePoly[ZZ].from_sparse(rebind[SparsePoly[ZZ]](f), budget, variable=variable)
+            var hd = DensePoly[ZZ].from_sparse(rebind[SparsePoly[ZZ]](h), budget, variable=variable)
+            return rebind_var[SparsePoly[C]](_univariate_gcd(fd, hd, budget).to_sparse(f.order, budget))
+    var use_heuristic = heuristic
+    comptime if C == ZZ:
+        if len(variables) > 1:
+            var exponents = _deflation(f, h, variables, budget)
+            if _deflates(exponents):
+                var deflated = _gcd_value(_scaled(f, variables, exponents, False, budget), _scaled(h, variables, exponents, False, budget), budget)
+                return _normalized(_scaled(deflated, variables, exponents, True, budget), budget)
+            # Degrees in each variable, shared by every method below.
+            _allocation[Int](2 * len(variables), budget)
+            var tops_f = List[Int](length=len(variables), fill=0)
+            var tops_h = List[Int](length=len(variables), fill=0)
+            _degrees(rebind[SparsePoly[ZZ]](f), variables, tops_f, budget)
+            _degrees(rebind[SparsePoly[ZZ]](h), variables, tops_h, budget)
+            if _image_coprime(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), variable, variables, tops_f, tops_h, budget):
+                # The gcd is that of the contents in `variable`. A content that
+                # divides an integer is the integer content, and its gcd with
+                # the other content is the gcd of the two integer contents.
+                if _constant_content(f, variable, budget) or _constant_content(h, variable, budget):
+                    return _normalized(_constant(f, _gcd_coefficient(_scalar_content(f, budget), _scalar_content(h, budget), budget), budget), budget)
+                return _normalized(_gcd_value(_content(f, variable, budget), _content(h, variable, budget), budget), budget)
+            # Sparse modular interpolation, unless both inputs fill most of their
+            # total-degree box, where the subresultant PRS measures faster.
+            var dense = _dense_in_total_degree(f, len(variables), budget) and _dense_in_total_degree(h, len(variables), budget)
+            # Brown's dense modular gcd first for few variables of high degree,
+            # where it measured faster than GCDHEU; GCDHEU first otherwise.
+            var high = False
+            if len(variables) <= 3:
+                for i in range(len(variables)):
+                    if max(tops_f[i], tops_h[i]) >= 16:
+                        high = True
+            if dense and high:
+                var brown = _brown_gcd(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), variables, tops_f, tops_h, budget)
+                if brown:
+                    return _normalized(rebind_var[SparsePoly[C]](brown.take()), budget)
+            # Small dense inputs in three or more variables run GCDHEU first.
+            var heuristic_first = dense and heuristic and not high and _small_for_heuristic(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), variables)
+            if dense and heuristic and heuristic_first:
+                use_heuristic = False
+                var first = _heuristic(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), budget)
+                if first:
+                    return _normalized(rebind_var[SparsePoly[C]](first.take()), budget)
+            if not high:
+                var early = _sparse_brown_gcd(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), variables, tops_f, tops_h, budget)
+                if early:
+                    return _normalized(rebind_var[SparsePoly[C]](early.take()), budget)
+            if dense and heuristic and not heuristic_first:
+                use_heuristic = False
+                var guess = _heuristic(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), budget)
+                if guess:
+                    return _normalized(rebind_var[SparsePoly[C]](guess.take()), budget)
+            if high:
+                var sparse = _sparse_brown_gcd(rebind[SparsePoly[ZZ]](f), rebind[SparsePoly[ZZ]](h), variables, tops_f, tops_h, budget)
+                if sparse:
+                    return _normalized(rebind_var[SparsePoly[C]](sparse.take()), budget)
+            if not dense:
+                var lex = MonomialOrder(MonomialOrder.LEX, variables.copy(), budget)
+                var modular = _sparse_gcd(rebind[SparsePoly[ZZ]](f).reorder(lex, budget), rebind[SparsePoly[ZZ]](h).reorder(lex, budget), budget)
+                return _normalized(rebind_var[SparsePoly[C]](modular.reorder(f.order, budget)), budget)
+    var cf = _content(f, variable, budget, use_heuristic)
+    var ch = _content(h, variable, budget, use_heuristic)
+    var common = _gcd_value(cf, ch, budget, use_heuristic)
     var pf = _exact_poly(f, cf, budget)
     var ph = _exact_poly(h, ch, budget)
-    comptime if C == ZZ:
-        if len(variables) == 1 and max(pf.degree_in(variable, budget), ph.degree_in(variable, budget)) >= _MODULAR_THRESHOLD:
-            var primitive = _modular_primitive(rebind[SparsePoly[ZZ]](pf), rebind[SparsePoly[ZZ]](ph), variable, budget)
-            return _normalized(common.mul(rebind[SparsePoly[C]](primitive), budget), budget)
     var sequence = _prs(pf, ph, variable, False, budget, history=False)
     var last = _zero(f, budget)
     if len(sequence):
@@ -139,5 +248,5 @@ def _gcd_value[C: CoefficientRing](f: SparsePoly[C], h: SparsePoly[C], mut budge
         last = pf^
     else:
         last = ph^
-    var primitive = _exact_poly(last, _content(last, variable, budget), budget)
+    var primitive = _exact_poly(last, _content(last, variable, budget, use_heuristic), budget)
     return _normalized(common.mul(primitive, budget), budget)
